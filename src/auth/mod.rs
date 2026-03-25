@@ -33,4 +33,5 @@ pub trait TokenStore: Send + Sync {
     async fn load(&self, provider: &str) -> Result<TokenData>;
     async fn save(&self, provider: &str, data: &TokenData) -> Result<()>;
     async fn delete(&self, provider: &str) -> Result<()>;
+    fn is_expired(&self, data: &TokenData) -> bool;
 }

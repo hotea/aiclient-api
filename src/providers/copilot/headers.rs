@@ -70,6 +70,7 @@ impl CopilotHeaders {
         insert(&mut headers, "x-interaction-type", "conversation-agent");
         insert(&mut headers, "vscode-machineid", &self.machine_id);
         insert(&mut headers, "vscode-sessionid", &session_id);
+        insert(&mut headers, "x-initiator", "user");
 
         headers
     }

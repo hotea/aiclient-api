@@ -62,4 +62,14 @@ impl TokenStore for XdgTokenStore {
         }
         Ok(())
     }
+
+    fn is_expired(&self, data: &TokenData) -> bool {
+        let now = chrono::Utc::now().timestamp();
+        match data {
+            TokenData::Copilot { expires_at, .. } => {
+                expires_at.is_some_and(|exp| now >= exp)
+            }
+            TokenData::Kiro { expires_at, .. } => now >= *expires_at,
+        }
+    }
 }
