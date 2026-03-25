@@ -43,6 +43,7 @@ mac_address = "1"
 uuid = { version = "1", features = ["v4"] }
 open = "5"
 base64 = "0.22"
+percent-encoding = "2"
 
 # XDG dirs
 dirs = "6"

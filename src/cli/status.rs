@@ -17,6 +17,9 @@ pub async fn send_control_request(request: serde_json::Value) -> Result<serde_js
     let mut len_buf = [0u8; 4];
     stream.read_exact(&mut len_buf).await?;
     let len = u32::from_be_bytes(len_buf) as usize;
+    if len > 16 * 1024 * 1024 {
+        anyhow::bail!("Response too large: {} bytes", len);
+    }
     let mut resp_buf = vec![0u8; len];
     stream.read_exact(&mut resp_buf).await?;
 

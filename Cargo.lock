@@ -32,6 +32,7 @@ dependencies = [
  "libc",
  "mac_address",
  "open",
+ "percent-encoding",
  "rand 0.9.2",
  "reqwest",
  "self_update",

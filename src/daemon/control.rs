@@ -13,9 +13,10 @@ pub async fn start_control_server(state: AppState) -> Result<()> {
     }
 
     // Remove existing socket if present
-    if socket_path.exists() {
-        std::fs::remove_file(&socket_path)
-            .context("Failed to remove existing socket file")?;
+    match std::fs::remove_file(&socket_path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(anyhow::anyhow!(e).context("Failed to remove existing socket file")),
     }
 
     let listener = UnixListener::bind(&socket_path)
@@ -239,7 +240,7 @@ async fn handle_config_set(key: String, value: serde_json::Value) -> serde_json:
 
 async fn handle_logs_tail(n: usize) -> serde_json::Value {
     let log_path = crate::util::xdg::log_path();
-    match std::fs::read_to_string(&log_path) {
+    match tokio::fs::read_to_string(&log_path).await {
         Ok(contents) => {
             let lines: Vec<&str> = contents.lines().collect();
             let start = lines.len().saturating_sub(n);

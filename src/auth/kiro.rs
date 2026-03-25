@@ -317,7 +317,7 @@ async fn receive_oauth_callback(
         .await
         .context("Failed to accept OAuth callback connection")?;
 
-    let mut buf = vec![0u8; 4096];
+    let mut buf = vec![0u8; 16 * 1024];
     let n = stream.read(&mut buf).await?;
     let request = String::from_utf8_lossy(&buf[..n]);
 
@@ -357,32 +357,18 @@ async fn receive_oauth_callback(
         bail!("OAuth callback returned error: {}", err);
     }
 
-    if let Some(s) = &state {
-        if s != expected_state {
-            bail!("OAuth state mismatch");
-        }
+    let s = state.context("Missing state parameter in OAuth callback")?;
+    if s != expected_state {
+        bail!("OAuth state mismatch");
     }
 
     code.context("No authorization code in callback")
 }
 
 fn url_decode(s: &str) -> String {
-    let mut result = String::new();
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '%' {
-            let h1 = chars.next().unwrap_or('0');
-            let h2 = chars.next().unwrap_or('0');
-            if let Ok(byte) = u8::from_str_radix(&format!("{}{}", h1, h2), 16) {
-                result.push(byte as char);
-            }
-        } else if c == '+' {
-            result.push(' ');
-        } else {
-            result.push(c);
-        }
-    }
-    result
+    percent_encoding::percent_decode_str(s)
+        .decode_utf8_lossy()
+        .into_owned()
 }
 
 // ---- Token Refresh Functions ----

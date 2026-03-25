@@ -8,7 +8,7 @@ pub async fn run(lines: usize, level: &str) -> Result<()> {
         return Ok(());
     }
 
-    let content = std::fs::read_to_string(&log_path)?;
+    let content = tokio::fs::read_to_string(&log_path).await?;
     let all_lines: Vec<&str> = content.lines().collect();
 
     // Filter by log level
