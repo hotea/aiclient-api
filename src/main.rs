@@ -1,24 +1,27 @@
+use clap::Parser;
+
 mod cli;
 
-use clap::Parser;
-use cli::{Cli, Command};
+#[tokio::main]
+async fn main() {
+    let cli = cli::Cli::parse();
 
-fn main() {
-    let cli = Cli::parse();
-
-    match cli.command {
-        Command::Start { port, host, foreground: _, api_key: _, log_file: _ } => {
-            println!("Starting daemon on {}:{}", host, port);
+    let result = match cli.command {
+        cli::Command::Start { port, host, foreground, api_key, log_file } => {
+            cli::start::run(host, port, foreground, api_key, log_file).await
         }
-        Command::Stop => println!("Stopping daemon..."),
-        Command::Restart => println!("Restarting daemon..."),
-        Command::Auth { action: _ } => println!("Auth action"),
-        Command::Status => println!("Querying status..."),
-        Command::Config { action: _ } => println!("Config action"),
-        Command::Models => println!("Listing models..."),
-        Command::Provider { action: _ } => println!("Provider action"),
-        Command::Logs { lines: _, level: _ } => println!("Tailing logs..."),
-        Command::Update => println!("Updating..."),
-        Command::Uninstall => println!("Uninstalling..."),
+        cli::Command::Stop => cli::stop::run(),
+        cli::Command::Restart => {
+            cli::restart::run("127.0.0.1".into(), 9090, false, None, None).await
+        }
+        _ => {
+            eprintln!("Command not yet implemented");
+            Ok(())
+        }
+    };
+
+    if let Err(e) = result {
+        eprintln!("Error: {:#}", e);
+        std::process::exit(1);
     }
 }
