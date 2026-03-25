@@ -1,0 +1,32 @@
+# Default output format when both endpoints are available
+default_format = "openai"           # "openai" | "anthropic"
+
+# Default provider when model has no prefix
+default_provider = "copilot"
+
+# API key to protect the gateway (empty string = no auth required)
+api_key = ""
+
+[server]
+host = "127.0.0.1"
+port = 9090
+rate_limit_seconds = 0              # 0 = disabled
+
+# VSCode version for Copilot header spoofing (keep updated)
+vscode_version = "1.110.1"
+
+[providers.copilot]
+type = "copilot"
+enabled = true
+account_type = "individual"         # individual | business | enterprise
+# enterprise_url = ""               # required if account_type = enterprise
+
+[providers.kiro]
+type = "kiro"
+enabled = true
+region = "us-east-1"
+# idc_region = "us-east-1"
+
+[logging]
+level = "info"                      # trace | debug | info | warn | error
+file = ""                           # empty = $XDG_STATE_HOME/aiclient-api/daemon.log
