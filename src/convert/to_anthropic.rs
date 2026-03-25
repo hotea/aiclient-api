@@ -6,12 +6,11 @@ use uuid::Uuid;
 /// Otherwise, wrap in Anthropic response structure.
 pub fn to_anthropic(resp: &serde_json::Value, model: &str) -> serde_json::Value {
     // If resp already looks like Anthropic format (has "content" array with blocks that have "type"), return as-is
-    if let Some(content) = resp.get("content") {
-        if let Some(arr) = content.as_array() {
-            if arr.iter().any(|block| block.get("type").is_some()) {
-                return resp.clone();
-            }
-        }
+    if let Some(content) = resp.get("content")
+        && let Some(arr) = content.as_array()
+        && arr.iter().any(|block| block.get("type").is_some())
+    {
+        return resp.clone();
     }
 
     // Try to extract content from OpenAI-style response
@@ -41,7 +40,7 @@ pub fn to_anthropic(resp: &serde_json::Value, model: &str) -> serde_json::Value 
         ("".to_string(), "end_turn".to_string(), None)
     };
 
-    let id = format!("msg_{}", Uuid::new_v4().to_string().replace('-', "")[..24].to_string());
+    let id = format!("msg_{}", &Uuid::new_v4().to_string().replace('-', "")[..24]);
     let _created = Utc::now().timestamp();
 
     let mut anthropic_usage = serde_json::Value::Null;

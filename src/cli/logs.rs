@@ -15,16 +15,12 @@ pub async fn run(lines: usize, level: &str) -> Result<()> {
     let filtered: Vec<&str> = all_lines
         .iter()
         .filter(|line| {
-            if level == "info" {
-                // Show all levels (debug, info, warn, error)
-                true
-            } else if level == "warn" || level == "warning" {
+            if level == "warn" || level == "warning" {
                 line.contains("WARN") || line.contains("ERROR")
             } else if level == "error" {
                 line.contains("ERROR")
-            } else if level == "debug" {
-                true
             } else {
+                // info, debug, and any other level: show all
                 true
             }
         })

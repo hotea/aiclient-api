@@ -31,7 +31,7 @@ pub fn from_anthropic(req: AnthropicMessagesRequest) -> Result<ProviderRequest> 
 
     let extra = req
         .extra
-        .map(|m| serde_json::Value::Object(m))
+        .map(serde_json::Value::Object)
         .unwrap_or(serde_json::Value::Null);
 
     Ok(ProviderRequest {

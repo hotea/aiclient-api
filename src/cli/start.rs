@@ -25,7 +25,7 @@ pub async fn run(
 
     let log_path = log_file
         .map(PathBuf::from)
-        .unwrap_or_else(|| aiclient_api::util::xdg::log_path());
+        .unwrap_or_else(aiclient_api::util::xdg::log_path);
 
     if !foreground {
         aiclient_api::daemon::daemonize(&log_path)?;
@@ -65,7 +65,7 @@ pub async fn run(
         let vscode_version = config.vscode_version.clone();
         let mut providers = state.providers.write().await;
 
-        for (_name, provider_config) in &config.providers {
+        for provider_config in config.providers.values() {
             match provider_config {
                 aiclient_api::config::types::ProviderConfig::Copilot {
                     enabled: true,

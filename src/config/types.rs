@@ -8,9 +8,10 @@ pub enum Format {
     Anthropic,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum AccountType {
+    #[default]
     Individual,
     Business,
     Enterprise,
@@ -100,10 +101,6 @@ impl Default for ServerConfig {
     fn default() -> Self {
         ServerConfig { host: default_host(), port: default_port(), rate_limit_seconds: 0 }
     }
-}
-
-impl Default for AccountType {
-    fn default() -> Self { AccountType::Individual }
 }
 
 impl Default for LogConfig {

@@ -328,8 +328,8 @@ async fn receive_oauth_callback(
         .split_whitespace()
         .nth(1)
         .unwrap_or("")
-        .splitn(2, '?')
-        .nth(1)
+        .split_once('?')
+        .map(|x| x.1)
         .unwrap_or("");
 
     let mut code = None;

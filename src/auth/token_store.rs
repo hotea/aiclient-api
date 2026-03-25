@@ -7,13 +7,15 @@ pub struct XdgTokenStore {
     base_dir: PathBuf,
 }
 
+impl Default for XdgTokenStore {
+    fn default() -> Self {
+        Self::new(crate::util::xdg::config_dir())
+    }
+}
+
 impl XdgTokenStore {
     pub fn new(base_dir: PathBuf) -> Self {
         Self { base_dir }
-    }
-
-    pub fn default() -> Self {
-        Self::new(crate::util::xdg::config_dir())
     }
 
     fn token_path(&self, provider: &str) -> PathBuf {
@@ -59,10 +61,8 @@ impl TokenStore for XdgTokenStore {
             Err(e) => return Err(e.into()),
         }
         let dir = self.base_dir.join(provider);
-        match tokio::fs::remove_dir(&dir).await {
-            Ok(()) => {}
-            Err(_) => {} // Ignore: dir may not exist or not be empty
-        }
+        // Ignore: dir may not exist or not be empty
+        let _ = tokio::fs::remove_dir(&dir).await;
         Ok(())
     }
 

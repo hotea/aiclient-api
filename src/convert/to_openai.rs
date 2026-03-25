@@ -46,7 +46,7 @@ pub fn to_openai(resp: &serde_json::Value, model: &str) -> serde_json::Value {
         ("".to_string() + &text, "stop".to_string(), None)
     };
 
-    let id = format!("chatcmpl-{}", Uuid::new_v4().to_string().replace('-', "")[..24].to_string());
+    let id = format!("chatcmpl-{}", &Uuid::new_v4().to_string().replace('-', "")[..24]);
     let created = Utc::now().timestamp();
 
     let mut openai_usage = serde_json::Value::Null;

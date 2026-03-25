@@ -4,7 +4,6 @@ pub mod models;
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use bytes::Bytes;
 use futures::StreamExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -29,6 +28,7 @@ pub struct CopilotProvider {
     headers: Arc<headers::CopilotHeaders>,
     token: Arc<RwLock<Option<CopilotToken>>>,
     github_token: String,
+    #[allow(dead_code)]
     account_type: AccountType,
     healthy: AtomicBool,
 }
@@ -174,7 +174,7 @@ impl Provider for CopilotProvider {
 
             let byte_stream = resp
                 .bytes_stream()
-                .map(|r| r.map(|b| b.into()).map_err(|e| anyhow::anyhow!(e)));
+                .map(|r| r.map_err(|e| anyhow::anyhow!(e)));
 
             Ok(ProviderResponse::Stream(Box::pin(byte_stream)))
         } else {
@@ -214,7 +214,7 @@ impl Provider for CopilotProvider {
         if stream {
             let byte_stream = resp
                 .bytes_stream()
-                .map(|r| r.map(|b: Bytes| b).map_err(|e| anyhow::anyhow!(e)));
+                .map(|r| r.map_err(|e| anyhow::anyhow!(e)));
 
             Ok(ProviderResponse::Stream(Box::pin(byte_stream)))
         } else {

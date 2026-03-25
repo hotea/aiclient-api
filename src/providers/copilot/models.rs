@@ -10,8 +10,10 @@ struct ModelCapabilities {
     #[serde(default)]
     supports_streaming: Option<bool>,
     #[serde(rename = "type")]
+    #[allow(dead_code)]
     model_type: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     tokenizer: Option<String>,
     limits: Option<ModelLimits>,
     supports: Option<ModelSupports>,
@@ -28,6 +30,7 @@ struct ModelLimits {
 struct ModelSupports {
     streaming: Option<bool>,
     tool_calls: Option<bool>,
+    #[allow(dead_code)]
     parallel_tool_calls: Option<bool>,
 }
 

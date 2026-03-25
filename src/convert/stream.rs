@@ -1,5 +1,5 @@
-/// SSE stream chunk conversion helpers.
-/// Functions to convert SSE chunks between OpenAI and Anthropic formats.
+//! SSE stream chunk conversion helpers.
+//! Functions to convert SSE chunks between OpenAI and Anthropic formats.
 
 /// Convert a raw SSE chunk to OpenAI format.
 /// If the chunk already looks like OpenAI format (has "choices"), return as-is.
@@ -76,8 +76,8 @@ pub fn chunk_to_anthropic(chunk: &[u8], _model: &str) -> Vec<u8> {
             // Try to parse as JSON
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(data) {
                 // If already Anthropic format (has "type" field that's an event type), pass through
-                if let Some(event_type) = val.get("type").and_then(|t| t.as_str()) {
-                    if matches!(
+                if let Some(event_type) = val.get("type").and_then(|t| t.as_str())
+                    && matches!(
                         event_type,
                         "message_start"
                             | "content_block_start"
@@ -85,12 +85,12 @@ pub fn chunk_to_anthropic(chunk: &[u8], _model: &str) -> Vec<u8> {
                             | "content_block_stop"
                             | "message_delta"
                             | "message_stop"
-                    ) {
-                        result.extend_from_slice(b"data: ");
-                        result.extend_from_slice(data.as_bytes());
-                        result.extend_from_slice(b"\n\n");
-                        continue;
-                    }
+                    )
+                {
+                    result.extend_from_slice(b"data: ");
+                    result.extend_from_slice(data.as_bytes());
+                    result.extend_from_slice(b"\n\n");
+                    continue;
                 }
                 // Try to convert from OpenAI streaming format
                 let converted = convert_openai_chunk_to_anthropic(&val, _model);
@@ -183,18 +183,18 @@ fn convert_openai_chunk_to_anthropic(
 
     let mut events = Vec::new();
 
-    if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
-        if !content.is_empty() {
-            let event = serde_json::json!({
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": {
-                    "type": "text_delta",
-                    "text": content,
-                }
-            });
-            events.push(event);
-        }
+    if let Some(content) = delta.get("content").and_then(|c| c.as_str())
+        && !content.is_empty()
+    {
+        let event = serde_json::json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+                "type": "text_delta",
+                "text": content,
+            }
+        });
+        events.push(event);
     }
 
     if let Some(finish_reason) = first_choice.get("finish_reason").and_then(|f| f.as_str()) {
