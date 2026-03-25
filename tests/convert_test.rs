@@ -108,3 +108,25 @@ fn test_from_anthropic_uses_top_level_system() {
     let pr = from_anthropic(req).unwrap();
     assert_eq!(pr.system.as_deref(), Some("You are helpful"));
 }
+
+#[test]
+fn test_openai_request_round_trip() {
+    let json = r#"{"model":"gpt-4","messages":[{"role":"user","content":"hello"}],"stream":false,"max_tokens":100}"#;
+    let req: OpenAIChatRequest = serde_json::from_str(json).unwrap();
+    let reserialized = serde_json::to_string(&req).unwrap();
+    let round_tripped: OpenAIChatRequest = serde_json::from_str(&reserialized).unwrap();
+    assert_eq!(req.model, round_tripped.model);
+    assert_eq!(req.messages.len(), round_tripped.messages.len());
+    assert_eq!(req.max_tokens, round_tripped.max_tokens);
+}
+
+#[test]
+fn test_anthropic_request_round_trip() {
+    let json = r#"{"model":"claude-3","messages":[{"role":"user","content":"hello"}],"max_tokens":1024,"stream":true}"#;
+    let req: AnthropicMessagesRequest = serde_json::from_str(json).unwrap();
+    let reserialized = serde_json::to_string(&req).unwrap();
+    let round_tripped: AnthropicMessagesRequest = serde_json::from_str(&reserialized).unwrap();
+    assert_eq!(req.model, round_tripped.model);
+    assert_eq!(req.max_tokens, round_tripped.max_tokens);
+    assert_eq!(req.stream, round_tripped.stream);
+}
