@@ -14,6 +14,7 @@ async fn main() {
         cli::Command::Restart => {
             cli::restart::run("127.0.0.1".into(), 9090, false, None, None).await
         }
+        cli::Command::Auth { action } => cli::auth::run(action).await,
         _ => {
             eprintln!("Command not yet implemented");
             Ok(())

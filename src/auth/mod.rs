@@ -1,3 +1,4 @@
+pub mod copilot;
 pub mod token_store;
 
 use anyhow::Result;
