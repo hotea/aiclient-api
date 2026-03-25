@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use rand::Rng;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::time::Duration;
@@ -208,8 +209,8 @@ pub async fn authenticate_builder_id(store: &dyn TokenStore, region: &str) -> Re
 
 pub async fn authenticate_social(store: &dyn TokenStore, region: &str, provider: &str) -> Result<()> {
     // Step 1: Generate PKCE
-    let code_verifier_bytes: Vec<u8> = (0..32).map(|_| rand_byte()).collect();
-    let code_verifier = URL_SAFE_NO_PAD.encode(&code_verifier_bytes);
+    let code_verifier_bytes: [u8; 32] = rand::rng().random();
+    let code_verifier = URL_SAFE_NO_PAD.encode(code_verifier_bytes);
 
     let mut hasher = Sha256::new();
     hasher.update(code_verifier.as_bytes());
@@ -217,8 +218,8 @@ pub async fn authenticate_social(store: &dyn TokenStore, region: &str, provider:
     let code_challenge = URL_SAFE_NO_PAD.encode(hash);
 
     // Generate random state
-    let state_bytes: Vec<u8> = (0..16).map(|_| rand_byte()).collect();
-    let state = URL_SAFE_NO_PAD.encode(&state_bytes);
+    let state_bytes: [u8; 16] = rand::rng().random();
+    let state = URL_SAFE_NO_PAD.encode(state_bytes);
 
     // Step 2: Start local HTTP server
     let (port, listener) = bind_local_port(&[19876, 19877, 19878, 19879, 19880]).await?;
@@ -382,21 +383,6 @@ fn url_decode(s: &str) -> String {
         }
     }
     result
-}
-
-fn rand_byte() -> u8 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    use std::time::SystemTime;
-
-    let mut hasher = DefaultHasher::new();
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos()
-        .hash(&mut hasher);
-    (std::ptr::addr_of!(hasher) as usize).hash(&mut hasher);
-    (hasher.finish() & 0xFF) as u8
 }
 
 // ---- Token Refresh Functions ----

@@ -107,6 +107,27 @@ async fn dispatch_request(
                 .to_string();
             handle_provider_disable(name).await
         }
+        "config.set" => {
+            let params = request.get("params");
+            let key = params
+                .and_then(|p| p.get("key"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let value = params
+                .and_then(|p| p.get("value"))
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            handle_config_set(key, value).await
+        }
+        "logs.tail" => {
+            let n = request
+                .get("params")
+                .and_then(|p| p.get("lines"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(50) as usize;
+            handle_logs_tail(n).await
+        }
         unknown => {
             serde_json::json!({
                 "ok": false,
@@ -136,6 +157,7 @@ async fn handle_status(state: &AppState) -> serde_json::Value {
         "data": {
             "uptime_seconds": uptime_secs,
             "provider_count": provider_count,
+            "connections": 0,
             "providers": provider_health
         }
     })
@@ -202,4 +224,36 @@ async fn handle_provider_disable(name: String) -> serde_json::Value {
         "ok": true,
         "data": { "message": format!("Provider '{}' disable requested (requires restart to take effect)", name) }
     })
+}
+
+async fn handle_config_set(key: String, value: serde_json::Value) -> serde_json::Value {
+    if key.is_empty() {
+        return serde_json::json!({ "ok": false, "error": "Missing config key" });
+    }
+    // Not yet implemented — would require config hot-reload and persistence
+    serde_json::json!({
+        "ok": true,
+        "data": { "message": format!("config.set for '{}' not yet implemented", key), "key": key, "value": value }
+    })
+}
+
+async fn handle_logs_tail(n: usize) -> serde_json::Value {
+    let log_path = crate::util::xdg::log_path();
+    match std::fs::read_to_string(&log_path) {
+        Ok(contents) => {
+            let lines: Vec<&str> = contents.lines().collect();
+            let start = lines.len().saturating_sub(n);
+            let tail: Vec<&str> = lines[start..].to_vec();
+            serde_json::json!({
+                "ok": true,
+                "data": { "lines": tail, "count": tail.len(), "path": log_path.display().to_string() }
+            })
+        }
+        Err(e) => {
+            serde_json::json!({
+                "ok": false,
+                "error": format!("Failed to read log file at {}: {}", log_path.display(), e)
+            })
+        }
+    }
 }
