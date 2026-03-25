@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 
 pub mod copilot;
+pub mod kiro;
 pub mod router;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

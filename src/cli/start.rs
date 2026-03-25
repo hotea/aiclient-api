@@ -98,8 +98,31 @@ pub async fn run(
                 } => {
                     // Provider disabled, skip
                 }
-                aiclient_api::config::types::ProviderConfig::Kiro { enabled: true, .. } => {
-                    tracing::info!("Kiro provider not yet implemented, skipping");
+                aiclient_api::config::types::ProviderConfig::Kiro {
+                    enabled: true,
+                    region,
+                    ..
+                } => {
+                    match store.load("kiro").await {
+                        Ok(token_data) => {
+                            match aiclient_api::providers::kiro::KiroProvider::new(&token_data, region) {
+                                Ok(provider) => {
+                                    provider.start();
+                                    providers.insert(
+                                        "kiro".to_string(),
+                                        provider as std::sync::Arc<dyn aiclient_api::providers::Provider>,
+                                    );
+                                    tracing::info!("Kiro provider initialized");
+                                }
+                                Err(e) => {
+                                    tracing::warn!("Failed to create Kiro provider: {:#}", e);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!("Kiro auth not configured: {:#}", e);
+                        }
+                    }
                 }
                 aiclient_api::config::types::ProviderConfig::Kiro {
                     enabled: false, ..
