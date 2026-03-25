@@ -15,8 +15,17 @@ async fn main() {
             cli::restart::run("127.0.0.1".into(), 9090, false, None, None).await
         }
         cli::Command::Auth { action } => cli::auth::run(action).await,
-        _ => {
-            eprintln!("Command not yet implemented");
+        cli::Command::Status => cli::status::run().await,
+        cli::Command::Config { action } => cli::config_cmd::run(action).await,
+        cli::Command::Models => cli::models::run().await,
+        cli::Command::Provider { action } => cli::provider_cmd::run(action).await,
+        cli::Command::Logs { lines, level } => cli::logs::run(lines, &level).await,
+        cli::Command::Update => {
+            eprintln!("Update not yet implemented");
+            Ok(())
+        }
+        cli::Command::Uninstall => {
+            eprintln!("Uninstall not yet implemented");
             Ok(())
         }
     };

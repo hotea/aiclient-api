@@ -110,7 +110,15 @@ pub async fn run(
         }
     }
 
-    let app = aiclient_api::server::build_router(state);
+    let app = aiclient_api::server::build_router(state.clone());
+
+    // Spawn the Unix socket control server
+    let control_state = state.clone();
+    tokio::spawn(async move {
+        if let Err(e) = aiclient_api::daemon::control::start_control_server(control_state).await {
+            tracing::error!("Control server error: {:#}", e);
+        }
+    });
 
     let addr = format!("{}:{}", config.server.host, config.server.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;

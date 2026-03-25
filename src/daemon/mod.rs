@@ -1,3 +1,5 @@
+pub mod control;
+
 use anyhow::{Context, Result};
 use std::path::Path;
 
