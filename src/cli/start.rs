@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::path::PathBuf;
+use tokio::signal::unix::SignalKind;
 use tracing_subscriber::EnvFilter;
 
 use aiclient_api::auth::TokenStore;
@@ -140,6 +141,24 @@ pub async fn run(
     tokio::spawn(async move {
         if let Err(e) = aiclient_api::daemon::control::start_control_server(control_state).await {
             tracing::error!("Control server error: {:#}", e);
+        }
+    });
+
+    // Spawn SIGHUP handler for config hot-reload
+    let config_arc = state.config.clone();
+    tokio::spawn(async move {
+        let mut sighup = tokio::signal::unix::signal(SignalKind::hangup())
+            .expect("failed to install SIGHUP handler");
+        loop {
+            sighup.recv().await;
+            tracing::info!("Received SIGHUP, reloading config...");
+            match aiclient_api::config::load_default_config() {
+                Ok(new_config) => {
+                    config_arc.store(std::sync::Arc::new(new_config));
+                    tracing::info!("Config reloaded successfully");
+                }
+                Err(e) => tracing::error!("Config reload failed: {:#}", e),
+            }
         }
     });
 
