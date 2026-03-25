@@ -11,7 +11,7 @@ pub async fn run(action: AuthAction) -> Result<()> {
             println!("Successfully authenticated with GitHub Copilot.");
         }
         AuthAction::Kiro => {
-            println!("Kiro auth not yet implemented");
+            run_kiro_auth().await?;
         }
         AuthAction::List => {
             let store = XdgTokenStore::default();
@@ -46,6 +46,7 @@ pub async fn run(action: AuthAction) -> Result<()> {
                             aiclient_api::auth::TokenData::Kiro {
                                 access_token,
                                 region,
+                                auth_method,
                                 expires_at,
                                 ..
                             } => {
@@ -55,6 +56,7 @@ pub async fn run(action: AuthAction) -> Result<()> {
                                     &access_token[..8.min(access_token.len())]
                                 );
                                 println!("  region: {}", region);
+                                println!("  auth_method: {}", auth_method);
                                 println!("  expires_at: {}", expires_at);
                             }
                         }
@@ -74,5 +76,46 @@ pub async fn run(action: AuthAction) -> Result<()> {
             println!("Revoked token for provider: {}", provider);
         }
     }
+    Ok(())
+}
+
+async fn run_kiro_auth() -> Result<()> {
+    println!("Select authentication method for Kiro:");
+    println!("  1. AWS Builder ID (recommended)");
+    println!("  2. Google account");
+    println!("  3. GitHub account");
+    print!("Enter choice (1-3): ");
+
+    use std::io::Write;
+    std::io::stdout().flush()?;
+
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    let choice = input.trim();
+
+    let store = XdgTokenStore::default();
+    let region = "us-east-1";
+
+    match choice {
+        "1" | "" => {
+            println!("Starting AWS Builder ID authentication...");
+            aiclient_api::auth::kiro::authenticate_builder_id(&store, region).await?;
+            println!("Successfully authenticated with Kiro (Builder ID).");
+        }
+        "2" => {
+            println!("Starting Google account authentication...");
+            aiclient_api::auth::kiro::authenticate_social(&store, region, "google").await?;
+            println!("Successfully authenticated with Kiro (Google).");
+        }
+        "3" => {
+            println!("Starting GitHub account authentication...");
+            aiclient_api::auth::kiro::authenticate_social(&store, region, "github").await?;
+            println!("Successfully authenticated with Kiro (GitHub).");
+        }
+        other => {
+            anyhow::bail!("Invalid choice: {}. Please enter 1, 2, or 3.", other);
+        }
+    }
+
     Ok(())
 }
