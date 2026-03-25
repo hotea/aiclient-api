@@ -2,6 +2,8 @@ use anyhow::Result;
 use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 
+use aiclient_api::auth::TokenStore;
+
 pub async fn run(
     host: String,
     port: u16,
@@ -55,6 +57,59 @@ pub async fn run(
     }
 
     let state = aiclient_api::server::state::AppState::new(config.clone());
+
+    // Initialize providers from config
+    {
+        let store = aiclient_api::auth::token_store::XdgTokenStore::default();
+        let vscode_version = config.vscode_version.clone();
+        let mut providers = state.providers.write().await;
+
+        for (_name, provider_config) in &config.providers {
+            match provider_config {
+                aiclient_api::config::types::ProviderConfig::Copilot {
+                    enabled: true,
+                    account_type,
+                    ..
+                } => {
+                    match store.load("copilot").await {
+                        Ok(aiclient_api::auth::TokenData::Copilot { github_token, .. }) => {
+                            let provider = aiclient_api::providers::copilot::CopilotProvider::new(
+                                github_token,
+                                account_type.clone(),
+                                &vscode_version,
+                            );
+                            provider.start();
+                            providers.insert("copilot".to_string(), provider);
+                            tracing::info!("Initialized Copilot provider");
+                        }
+                        Ok(_) => {
+                            tracing::warn!("Unexpected token type for copilot provider, skipping");
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to load Copilot token, skipping provider: {:#}",
+                                e
+                            );
+                        }
+                    }
+                }
+                aiclient_api::config::types::ProviderConfig::Copilot {
+                    enabled: false, ..
+                } => {
+                    // Provider disabled, skip
+                }
+                aiclient_api::config::types::ProviderConfig::Kiro { enabled: true, .. } => {
+                    tracing::info!("Kiro provider not yet implemented, skipping");
+                }
+                aiclient_api::config::types::ProviderConfig::Kiro {
+                    enabled: false, ..
+                } => {
+                    // Provider disabled, skip
+                }
+            }
+        }
+    }
+
     let app = aiclient_api::server::build_router(state);
 
     let addr = format!("{}:{}", config.server.host, config.server.port);
