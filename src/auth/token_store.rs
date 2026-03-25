@@ -53,12 +53,15 @@ impl TokenStore for XdgTokenStore {
 
     async fn delete(&self, provider: &str) -> Result<()> {
         let path = self.token_path(provider);
-        if path.exists() {
-            tokio::fs::remove_file(&path).await?;
+        match tokio::fs::remove_file(&path).await {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
         }
         let dir = self.base_dir.join(provider);
-        if dir.exists() {
-            let _ = tokio::fs::remove_dir(&dir).await;
+        match tokio::fs::remove_dir(&dir).await {
+            Ok(()) => {}
+            Err(_) => {} // Ignore: dir may not exist or not be empty
         }
         Ok(())
     }

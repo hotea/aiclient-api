@@ -2,6 +2,7 @@ use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
 use crate::providers::Model;
+use super::client::CopilotClient;
 use super::headers::CopilotHeaders;
 
 #[derive(Debug, Deserialize)]
@@ -44,14 +45,15 @@ struct ModelsResponse {
 }
 
 pub async fn fetch_models(
+    client: &CopilotClient,
     headers: &CopilotHeaders,
     copilot_token: &str,
 ) -> Result<Vec<Model>> {
-    let client = reqwest::Client::new();
     let hdrs = headers.build(copilot_token);
 
     let resp = client
-        .get("https://api.githubcopilot.com/models")
+        .http_client()
+        .get(format!("{}/models", client.base_url()))
         .headers(hdrs)
         .send()
         .await

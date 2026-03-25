@@ -23,6 +23,14 @@ impl CopilotClient {
         }
     }
 
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    pub fn http_client(&self) -> &reqwest::Client {
+        &self.client
+    }
+
     pub async fn chat_completions(
         &self,
         headers: HeaderMap,

@@ -60,9 +60,16 @@ impl CopilotProvider {
     fn start_token_refresh(self: &Arc<Self>) {
         let provider = self.clone();
         tokio::spawn(async move {
+            let mut consecutive_failures: u32 = 0;
             loop {
-                match fetch_copilot_token(&provider.github_token).await {
+                match fetch_copilot_token(
+                    provider.client.http_client(),
+                    &provider.github_token,
+                )
+                .await
+                {
                     Ok(resp) => {
+                        consecutive_failures = 0;
                         let refresh_in = resp.refresh_in;
                         {
                             let mut token = provider.token.write().await;
@@ -83,7 +90,15 @@ impl CopilotProvider {
                         sleep(Duration::from_secs(sleep_secs)).await;
                     }
                     Err(e) => {
-                        tracing::warn!("Failed to fetch Copilot token: {:#}", e);
+                        consecutive_failures += 1;
+                        tracing::warn!(
+                            "Failed to fetch Copilot token ({} consecutive): {:#}",
+                            consecutive_failures,
+                            e
+                        );
+                        if consecutive_failures >= 3 {
+                            provider.healthy.store(false, Ordering::Relaxed);
+                        }
                         sleep(Duration::from_secs(15)).await;
                     }
                 }
@@ -112,7 +127,7 @@ impl Provider for CopilotProvider {
 
     async fn list_models(&self) -> Result<Vec<Model>> {
         let copilot_token = self.get_copilot_token().await?;
-        models::fetch_models(&self.headers, &copilot_token).await
+        models::fetch_models(&self.client, &self.headers, &copilot_token).await
     }
 
     async fn chat(&self, request: ProviderRequest) -> Result<ProviderResponse> {

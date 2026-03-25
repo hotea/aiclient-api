@@ -64,7 +64,7 @@ pub async fn authenticate(store: &dyn TokenStore) -> Result<()> {
     let _ = open::that(&device_resp.verification_uri);
 
     // Step 3: Poll for access token
-    let poll_interval = Duration::from_secs(device_resp.interval + 1);
+    let mut poll_interval = Duration::from_secs(device_resp.interval + 1);
     let poll_body = serde_json::json!({
         "client_id": CLIENT_ID,
         "device_code": device_resp.device_code,
@@ -107,7 +107,7 @@ pub async fn authenticate(store: &dyn TokenStore) -> Result<()> {
                 // Continue polling
             }
             Some("slow_down") => {
-                sleep(Duration::from_secs(5)).await;
+                poll_interval += Duration::from_secs(5);
             }
             Some("expired_token") => {
                 bail!("Device code expired. Please try again.");
@@ -125,9 +125,10 @@ pub async fn authenticate(store: &dyn TokenStore) -> Result<()> {
     }
 }
 
-pub async fn fetch_copilot_token(github_token: &str) -> Result<CopilotTokenResponse> {
-    let client = reqwest::Client::new();
-
+pub async fn fetch_copilot_token(
+    client: &reqwest::Client,
+    github_token: &str,
+) -> Result<CopilotTokenResponse> {
     let resp = client
         .get(COPILOT_TOKEN_URL)
         .header("authorization", format!("token {}", github_token))
