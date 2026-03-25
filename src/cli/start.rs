@@ -178,9 +178,12 @@ pub async fn run(
         }
     };
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown)
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown)
+    .await?;
     tracing::info!("Shutting down...");
     aiclient_api::daemon::remove_pid()?;
     Ok(())
