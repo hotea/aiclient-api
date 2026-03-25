@@ -16,6 +16,20 @@ pub async fn chat_completions(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<Value>,
+) -> Response {
+    match chat_completions_inner(state, headers, body).await {
+        Ok(resp) => resp,
+        Err(e) => {
+            let (status, message) = e.status_and_message();
+            AppError::openai_error(status, &message)
+        }
+    }
+}
+
+async fn chat_completions_inner(
+    state: AppState,
+    headers: HeaderMap,
+    body: Value,
 ) -> Result<Response, AppError> {
     let model = body
         .get("model")
@@ -72,7 +86,17 @@ pub async fn chat_completions(
     }
 }
 
-pub async fn list_models(State(state): State<AppState>) -> Result<Json<Value>, AppError> {
+pub async fn list_models(State(state): State<AppState>) -> Response {
+    match list_models_inner(state).await {
+        Ok(resp) => Json(resp).into_response(),
+        Err(e) => {
+            let (status, message) = e.status_and_message();
+            AppError::openai_error(status, &message)
+        }
+    }
+}
+
+async fn list_models_inner(state: AppState) -> Result<Value, AppError> {
     let providers = state.providers.read().await;
     let mut models = Vec::new();
     for provider in providers.values() {
@@ -87,8 +111,8 @@ pub async fn list_models(State(state): State<AppState>) -> Result<Json<Value>, A
             }
         }
     }
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "object": "list",
         "data": models,
-    })))
+    }))
 }

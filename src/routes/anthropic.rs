@@ -16,6 +16,20 @@ pub async fn messages(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<Value>,
+) -> Response {
+    match messages_inner(state, headers, body).await {
+        Ok(resp) => resp,
+        Err(e) => {
+            let (status, message) = e.status_and_message();
+            AppError::anthropic_error(status, &message)
+        }
+    }
+}
+
+async fn messages_inner(
+    state: AppState,
+    headers: HeaderMap,
+    body: Value,
 ) -> Result<Response, AppError> {
     let model = body
         .get("model")
