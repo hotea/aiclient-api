@@ -1,12 +1,12 @@
 [package]
 name = "aiclient-api"
 version = "0.1.0"
-edition = "2024"
-authors = ["Su Kai"]
+edition = "2021"
+authors = ["Hotea <hotea@example.com>"]
 description = "A unified AI gateway daemon exposing OpenAI-compatible and Anthropic-compatible API endpoints, backed by GitHub Copilot and Kiro (AWS CodeWhisperer)"
 license = "MIT"
-repository = "https://github.com/nicepkg/aiclient-api"
-homepage = "https://github.com/nicepkg/aiclient-api"
+repository = "https://github.com/hotea/aiclient-api"
+homepage = "https://github.com/hotea/aiclient-api"
 readme = "README.md"
 keywords = ["ai", "openai", "anthropic", "copilot", "gateway"]
 categories = ["command-line-utilities", "web-programming::http-server"]
