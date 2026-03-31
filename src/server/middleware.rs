@@ -115,10 +115,10 @@ pub async fn rate_limit(
 
     {
         let mut map = limiter.write().await;
-        if let Some(last) = map.get(&ip)
-            && now.duration_since(*last) < interval
-        {
-            return middleware_error(&uri, AppError::RateLimited);
+        if let Some(last) = map.get(&ip) {
+            if now.duration_since(*last) < interval {
+                return middleware_error(&uri, AppError::RateLimited);
+            }
         }
         map.insert(ip, now);
 
