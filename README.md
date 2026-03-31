@@ -23,15 +23,25 @@ Use your existing Copilot or Kiro subscription with any tool that speaks the Ope
 - **Hot config reload** — `SIGHUP` or `config reload` to apply changes without restart
 - **XDG-compliant paths** — Config, tokens, logs, PID, socket all follow XDG conventions
 
-## Quick Start
+## Installation
 
-### 1. Build
+### Option 1: Install from crates.io (Recommended)
 
 ```bash
+cargo install aiclient-api
+```
+
+### Option 2: Build from source
+
+```bash
+git clone https://github.com/hotea/aiclient-api.git
+cd aiclient-api
 cargo build --release
 ```
 
-### 2. Authenticate
+## Quick Start
+
+### 1. Authenticate
 
 ```bash
 # GitHub Copilot (device flow — opens browser)
@@ -44,7 +54,7 @@ aiclient-api auth kiro
 aiclient-api auth kiro --start-url https://my-org.awsapps.com/start --region us-east-1
 ```
 
-### 3. Start the daemon
+### 2. Start the daemon
 
 ```bash
 # Background mode (default)
@@ -57,7 +67,7 @@ aiclient-api start --foreground
 aiclient-api start --port 8080 --api-key my-secret
 ```
 
-### 4. Use it
+### 3. Use it
 
 ```bash
 # OpenAI format
@@ -273,15 +283,25 @@ MIT
 - **热重载配置** — `SIGHUP` 信号或 `config reload` 命令即时生效
 - **XDG 路径规范** — 配置、Token、日志、PID、Socket 均遵循 XDG 目录规范
 
-## 快速开始
+## 安装
 
-### 1. 构建
+### 方式一：从 crates.io 安装（推荐）
 
 ```bash
+cargo install aiclient-api
+```
+
+### 方式二：从源码构建
+
+```bash
+git clone https://github.com/hotea/aiclient-api.git
+cd aiclient-api
 cargo build --release
 ```
 
-### 2. 认证
+## 快速开始
+
+### 1. 认证
 
 ```bash
 # GitHub Copilot（设备码流程 — 自动打开浏览器）
@@ -294,7 +314,7 @@ aiclient-api auth kiro
 aiclient-api auth kiro --start-url https://my-org.awsapps.com/start --region us-east-1
 ```
 
-### 3. 启动守护进程
+### 2. 启动守护进程
 
 ```bash
 # 后台模式（默认）
@@ -307,7 +327,7 @@ aiclient-api start --foreground
 aiclient-api start --port 8080 --api-key my-secret
 ```
 
-### 4. 使用
+### 3. 使用
 
 ```bash
 # OpenAI 格式
