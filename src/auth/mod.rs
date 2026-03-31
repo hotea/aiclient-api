@@ -24,6 +24,7 @@ pub enum TokenData {
         auth_method: String,
         region: String,
         idc_region: Option<String>,
+        start_url: Option<String>,
         profile_arn: Option<String>,
         expires_at: i64,
     },

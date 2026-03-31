@@ -76,20 +76,30 @@ struct RefreshTokenResponse {
     profile_arn: Option<String>,
 }
 
-// ---- Builder ID Device Flow ----
+const DEFAULT_BUILDER_ID_START_URL: &str = "https://view.awsapps.com/start";
 
-pub async fn authenticate_builder_id(store: &dyn TokenStore, region: &str) -> Result<()> {
+// ---- Builder ID / IAM Identity Center Device Flow ----
+
+pub async fn authenticate_builder_id(
+    store: &dyn TokenStore,
+    region: &str,
+    start_url: Option<&str>,
+) -> Result<()> {
     let client = reqwest::Client::new();
     let oidc_base = format!("https://oidc.{}.amazonaws.com", region);
+    let effective_start_url = start_url.unwrap_or(DEFAULT_BUILDER_ID_START_URL);
+    let is_org_identity = effective_start_url != DEFAULT_BUILDER_ID_START_URL;
 
     // Step 1: Register client
     let reg_body = serde_json::json!({
-        "clientName": "aiclient-api",
+        "clientName": "Kiro IDE",
         "clientType": "public",
         "scopes": [
             "codewhisperer:completions",
             "codewhisperer:analysis",
-            "codewhisperer:conversations"
+            "codewhisperer:conversations",
+            "codewhisperer:transformations",
+            "codewhisperer:taskassist"
         ]
     });
 
@@ -108,7 +118,7 @@ pub async fn authenticate_builder_id(store: &dyn TokenStore, region: &str) -> Re
     let device_body = serde_json::json!({
         "clientId": reg_resp.client_id,
         "clientSecret": reg_resp.client_secret,
-        "startUrl": "https://view.awsapps.com/start"
+        "startUrl": effective_start_url
     });
 
     let device_resp: DeviceAuthResponse = client
@@ -163,14 +173,28 @@ pub async fn authenticate_builder_id(store: &dyn TokenStore, region: &str) -> Re
             token_resp.expires_in,
         ) {
             let expires_at = chrono::Utc::now().timestamp() + expires_in as i64;
+            let auth_method = if is_org_identity {
+                "idc".to_string()
+            } else {
+                "builder_id".to_string()
+            };
             let token_data = TokenData::Kiro {
                 access_token,
                 refresh_token,
                 client_id: Some(reg_resp.client_id),
                 client_secret: Some(reg_resp.client_secret),
-                auth_method: "builder_id".to_string(),
+                auth_method,
                 region: region.to_string(),
-                idc_region: None,
+                idc_region: if is_org_identity {
+                    Some(region.to_string())
+                } else {
+                    None
+                },
+                start_url: if is_org_identity {
+                    Some(effective_start_url.to_string())
+                } else {
+                    None
+                },
                 profile_arn: None,
                 expires_at,
             };
@@ -285,6 +309,7 @@ pub async fn authenticate_social(store: &dyn TokenStore, region: &str, provider:
         auth_method: provider.to_lowercase(),
         region: region.to_string(),
         idc_region: None,
+        start_url: None,
         profile_arn: token_resp.profile_arn,
         expires_at,
     };

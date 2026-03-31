@@ -5,7 +5,7 @@ use axum::Json;
 use serde_json::Value;
 
 use crate::convert::anthropic_types::AnthropicMessagesRequest;
-use crate::convert::{from_anthropic, to_anthropic};
+use crate::convert::{from_anthropic, to_anthropic, to_openai};
 use crate::providers::router::resolve_provider;
 use crate::providers::{OutputFormat, ProviderResponse};
 use crate::server::state::AppState;
@@ -47,20 +47,55 @@ async fn messages_inner(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
+    // Determine output format: header > config default > endpoint default (Anthropic)
+    let output_format = if let Some(format_header) = headers.get("x-output-format") {
+        match format_header.to_str().ok() {
+            Some("openai") => OutputFormat::OpenAI,
+            Some("anthropic") => OutputFormat::Anthropic,
+            _ => OutputFormat::Anthropic,
+        }
+    } else {
+        // Use config default
+        let config = state.config.load();
+        match config.default_format {
+            crate::config::types::Format::OpenAI => OutputFormat::OpenAI,
+            crate::config::types::Format::Anthropic => OutputFormat::Anthropic,
+        }
+    };
+
     let (provider, resolved_model) =
         resolve_provider(&state, &model, header_provider.as_deref()).await?;
 
     // Check passthrough support
-    if provider.supports_passthrough(OutputFormat::Anthropic) {
+    if provider.supports_passthrough(output_format) {
         let response = provider
-            .passthrough(&resolved_model, body, OutputFormat::Anthropic, stream)
+            .passthrough(&resolved_model, body, output_format, stream)
             .await?;
         match response {
             ProviderResponse::Stream(s) => {
-                let sse = into_sse_response(s, OutputFormat::Anthropic, resolved_model.clone());
+                let sse = into_sse_response(s, output_format, resolved_model.clone());
                 return Ok(sse.into_response());
             }
             ProviderResponse::Complete(val) => {
+                // Record usage statistics from passthrough response
+                if let Some(usage) = val.get("usage") {
+                    let input_tokens = usage.get("input_tokens")
+                        .or_else(|| usage.get("prompt_tokens"))
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    let output_tokens = usage.get("output_tokens")
+                        .or_else(|| usage.get("completion_tokens"))
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    
+                    state.usage_tracker.record(
+                        provider.name(),
+                        &resolved_model,
+                        input_tokens,
+                        output_tokens,
+                    ).await;
+                }
+                
                 return Ok(Json(val).into_response());
             }
         }
@@ -76,12 +111,36 @@ async fn messages_inner(
 
     match response {
         ProviderResponse::Stream(s) => {
-            let sse = into_sse_response(s, OutputFormat::Anthropic, resolved_model.clone());
+            let sse = into_sse_response(s, output_format, resolved_model.clone());
             Ok(sse.into_response())
         }
         ProviderResponse::Complete(val) => {
-            let anthropic_resp = to_anthropic(&val, &resolved_model);
-            Ok(Json(anthropic_resp).into_response())
+            // Convert to the requested output format
+            let final_response = match output_format {
+                OutputFormat::Anthropic => to_anthropic(&val, &resolved_model),
+                OutputFormat::OpenAI => to_openai(&val, &resolved_model),
+            };
+            
+            // Record usage statistics
+            if let Some(usage) = val.get("usage") {
+                let input_tokens = usage.get("input_tokens")
+                    .or_else(|| usage.get("prompt_tokens"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let output_tokens = usage.get("output_tokens")
+                    .or_else(|| usage.get("completion_tokens"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                
+                state.usage_tracker.record(
+                    provider.name(),
+                    &resolved_model,
+                    input_tokens,
+                    output_tokens,
+                ).await;
+            }
+            
+            Ok(Json(final_response).into_response())
         }
     }
 }

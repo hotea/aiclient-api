@@ -1,5 +1,6 @@
 pub mod client;
 pub mod cw_types;
+pub mod eventstream;
 pub mod models;
 
 use anyhow::{Context, Result};
@@ -30,10 +31,11 @@ pub struct KiroProvider {
     client: KiroClient,
     token: Arc<RwLock<Option<KiroToken>>>,
     region: String,
+    idc_region: Option<String>,
     auth_method: String,
     profile_arn: Option<String>,
     healthy: AtomicBool,
-    // For Builder ID refresh
+    // For Builder ID / IDC refresh
     client_id: Option<String>,
     client_secret: Option<String>,
     refresh_token: Arc<RwLock<String>>,
@@ -49,6 +51,7 @@ impl KiroProvider {
                 client_id,
                 client_secret,
                 auth_method,
+                idc_region,
                 profile_arn,
                 expires_at,
                 ..
@@ -63,6 +66,7 @@ impl KiroProvider {
                         expires_at: *expires_at,
                     }))),
                     region: region.to_string(),
+                    idc_region: idc_region.clone(),
                     auth_method: auth_method.clone(),
                     profile_arn: profile_arn.clone(),
                     healthy: AtomicBool::new(false),
@@ -101,14 +105,21 @@ impl KiroProvider {
 
                 if needs_refresh {
                     let refresh_token_val = provider.refresh_token.read().await.clone();
-                    let result = if provider.auth_method == "builder_id" {
+                    let result = if provider.auth_method == "builder_id"
+                        || provider.auth_method == "idc"
+                    {
                         if let (Some(client_id), Some(client_secret)) = (
                             &provider.client_id,
                             &provider.client_secret,
                         ) {
+                            // Use idc_region for OIDC endpoint if set, otherwise fall back to region
+                            let refresh_region = provider
+                                .idc_region
+                                .as_deref()
+                                .unwrap_or(&provider.region);
                             kiro_auth::refresh_builder_id(
                                 &provider.http_client,
-                                &provider.region,
+                                refresh_region,
                                 &refresh_token_val,
                                 client_id,
                                 client_secret,
@@ -374,15 +385,72 @@ impl Provider for KiroProvider {
         }
 
         if request.stream {
+            // For streaming, return the raw byte stream
+            // The consumer will need to parse the event stream format
             let byte_stream = resp
                 .bytes_stream()
                 .map(|r| r.map(|b: Bytes| b).map_err(|e| anyhow::anyhow!(e)));
             Ok(ProviderResponse::Stream(Box::pin(byte_stream)))
         } else {
-            let json: serde_json::Value = resp
-                .json()
-                .await
-                .context("Failed to parse CodeWhisperer response")?;
+            // For non-streaming, AWS still returns event-stream format
+            // We need to parse it and collect all content
+            let body_bytes = resp.bytes().await.context("Failed to read response body")?;
+            
+            tracing::debug!("Raw response size: {} bytes", body_bytes.len());
+            
+            // Parse the event stream
+            let events = eventstream::parse_event_stream(&body_bytes)
+                .context("Failed to parse AWS event stream")?;
+            
+            tracing::info!("Parsed {} events from event stream", events.len());
+            
+            // Collect all content
+            let content = eventstream::collect_content(&events);
+            
+            if content.is_empty() {
+                anyhow::bail!("No content found in response events");
+            }
+            
+            tracing::info!("Collected content: {}", content);
+            
+            // Extract metering information for usage stats
+            let mut input_tokens = 0u32;
+            let mut output_tokens = 0u32;
+            
+            for event in &events {
+                if let eventstream::KiroEvent::Metering(metering) = event {
+                    if let Some(usage) = metering.usage {
+                        // AWS CodeWhisperer returns usage in tokens
+                        // Heuristic: assume roughly 50/50 split or use prompt length estimate
+                        // For more accuracy, we'd need to count tokens in the content
+                        let total = usage as u32;
+                        // Estimate: count words in content for output, rest is input
+                        let content_word_count = content.split_whitespace().count() as u32;
+                        output_tokens = content_word_count.max(total / 4); // rough estimate
+                        input_tokens = total.saturating_sub(output_tokens);
+                    }
+                }
+            }
+            
+            // Build a response in Anthropic's format
+            let json = serde_json::json!({
+                "id": format!("msg_{}", uuid::Uuid::new_v4()),
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": content
+                    }
+                ],
+                "model": request.model,
+                "stop_reason": "end_turn",
+                "usage": {
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens
+                }
+            });
+            
             Ok(ProviderResponse::Complete(json))
         }
     }

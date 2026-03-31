@@ -73,7 +73,14 @@ pub enum AuthAction {
         account_type: String,
     },
     /// Authenticate with Kiro
-    Kiro,
+    Kiro {
+        /// IAM Identity Center start URL (for organization identity)
+        #[arg(long)]
+        start_url: Option<String>,
+        /// AWS region for OIDC endpoint
+        #[arg(long)]
+        region: Option<String>,
+    },
     /// List authenticated providers
     List,
     /// Revoke a provider's tokens
@@ -82,6 +89,8 @@ pub enum AuthAction {
 
 #[derive(Subcommand)]
 pub enum ConfigAction {
+    /// Interactive configuration wizard
+    Init,
     /// Show current config
     Show,
     /// Set a config value

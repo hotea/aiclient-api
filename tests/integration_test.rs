@@ -284,3 +284,281 @@ async fn test_models_endpoint() {
     );
     assert_eq!(data[0]["owned_by"], "mock");
 }
+
+// ---------------------------------------------------------------------------
+// Router tests
+// ---------------------------------------------------------------------------
+
+/// Register provider_a and provider_b. Send a request with model "test-model"
+/// (no prefix) and header `X-Provider: provider_b`. Assert provider_b was
+/// called, provider_a was not.
+#[tokio::test]
+async fn test_model_routing_with_x_provider_header() {
+    let (server, mock_a, mock_b) = build_test_server_with_two_providers("").await;
+
+    let body = json!({
+        "model": "test-model",
+        "messages": [
+            {"role": "user", "content": "Hello"}
+        ]
+    });
+
+    let response = server
+        .post("/v1/chat/completions")
+        .add_header(
+            axum::http::HeaderName::from_static("x-provider"),
+            axum::http::HeaderValue::from_static("provider_b"),
+        )
+        .json(&body)
+        .await;
+
+    response.assert_status_ok();
+    assert!(!mock_a.was_called(), "provider_a should NOT have been called");
+    assert!(mock_b.was_called(), "provider_b should have been called");
+}
+
+/// Register provider_a as the default provider. Send a request with model
+/// "test-model" (no prefix, no X-Provider header). Assert provider_a was
+/// called.
+#[tokio::test]
+async fn test_model_routing_falls_back_to_default() {
+    let (server, mock_a) = build_test_server_with_provider("provider_a", "").await;
+
+    let body = json!({
+        "model": "test-model",
+        "messages": [
+            {"role": "user", "content": "Hello"}
+        ]
+    });
+
+    let response = server
+        .post("/v1/chat/completions")
+        .json(&body)
+        .await;
+
+    response.assert_status_ok();
+    assert!(mock_a.was_called(), "provider_a (default) should have been called");
+}
+
+/// Send a request with model "nonexistent/test-model". The router should fail
+/// to find a provider named "nonexistent" and return a non-200 response.
+#[tokio::test]
+async fn test_model_routing_unknown_prefix_returns_error() {
+    let (server, _mock) = build_test_server_with_provider("mock", "").await;
+
+    let body = json!({
+        "model": "nonexistent/test-model",
+        "messages": [
+            {"role": "user", "content": "Hello"}
+        ]
+    });
+
+    let response = server
+        .post("/v1/chat/completions")
+        .json(&body)
+        .await;
+
+    assert!(
+        response.status_code() != axum::http::StatusCode::OK,
+        "unknown provider prefix should result in a non-200 response, got {}",
+        response.status_code()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Auth middleware tests
+// ---------------------------------------------------------------------------
+
+/// Set api_key to "secret". Send a request with "Bearer wrong". Assert 401.
+#[tokio::test]
+async fn test_auth_middleware_wrong_key_returns_401() {
+    let (server, _mock) = build_test_server_with_provider("mock", "secret").await;
+
+    let body = json!({
+        "model": "test-model",
+        "messages": [
+            {"role": "user", "content": "Hello"}
+        ]
+    });
+
+    let response = server
+        .post("/v1/chat/completions")
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            axum::http::HeaderValue::from_static("Bearer wrong"),
+        )
+        .json(&body)
+        .await;
+
+    response.assert_status(axum::http::StatusCode::UNAUTHORIZED);
+}
+
+/// Set api_key to "" (empty). Send a request without any Authorization header.
+/// Assert 200 (empty api_key disables auth enforcement).
+#[tokio::test]
+async fn test_auth_middleware_no_key_config_allows_all() {
+    let (server, _mock) = build_test_server_with_provider("mock", "").await;
+
+    let body = json!({
+        "model": "test-model",
+        "messages": [
+            {"role": "user", "content": "Hello"}
+        ]
+    });
+
+    let response = server
+        .post("/v1/chat/completions")
+        .json(&body)
+        .await;
+
+    response.assert_status_ok();
+}
+
+/// Set api_key to "secret". Send with "Basic secret" instead of "Bearer secret".
+/// Assert 401 (wrong auth scheme).
+#[tokio::test]
+async fn test_auth_middleware_invalid_format_returns_401() {
+    let (server, _mock) = build_test_server_with_provider("mock", "secret").await;
+
+    let body = json!({
+        "model": "test-model",
+        "messages": [
+            {"role": "user", "content": "Hello"}
+        ]
+    });
+
+    let response = server
+        .post("/v1/chat/completions")
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            axum::http::HeaderValue::from_static("Basic secret"),
+        )
+        .json(&body)
+        .await;
+
+    response.assert_status(axum::http::StatusCode::UNAUTHORIZED);
+}
+
+// ---------------------------------------------------------------------------
+// Error format tests
+// ---------------------------------------------------------------------------
+
+/// Send a body with "messages" as a non-array value to /v1/chat/completions.
+/// The response should be in OpenAI error format: `error.message` and
+/// `error.type` fields.
+#[tokio::test]
+async fn test_openai_endpoint_error_format() {
+    let (server, _mock) = build_test_server_with_provider("mock", "").await;
+
+    // "messages" must be an array; passing a string forces a deserialization error.
+    let body = json!({
+        "model": "test-model",
+        "messages": "not-an-array"
+    });
+
+    let response = server
+        .post("/v1/chat/completions")
+        .json(&body)
+        .await;
+
+    assert!(
+        response.status_code() != axum::http::StatusCode::OK,
+        "invalid request should not return 200"
+    );
+
+    let json: serde_json::Value = response.json();
+    assert!(
+        json["error"]["message"].is_string(),
+        "OpenAI error response should have error.message, got: {json}"
+    );
+    assert!(
+        json["error"]["type"].is_string(),
+        "OpenAI error response should have error.type, got: {json}"
+    );
+}
+
+/// Send a body missing the required `max_tokens` field to /v1/messages.
+/// The response should be in Anthropic error format: `type: "error"`,
+/// `error.type`, and `error.message` fields.
+#[tokio::test]
+async fn test_anthropic_endpoint_error_format() {
+    let (server, _mock) = build_test_server_with_provider("mock", "").await;
+
+    // AnthropicMessagesRequest.max_tokens is required; omitting it triggers
+    // a deserialization error on the conversion path.
+    let body = json!({
+        "model": "test-model",
+        "messages": [
+            {"role": "user", "content": "Hello"}
+        ]
+        // max_tokens intentionally omitted
+    });
+
+    let response = server
+        .post("/v1/messages")
+        .json(&body)
+        .await;
+
+    assert!(
+        response.status_code() != axum::http::StatusCode::OK,
+        "missing max_tokens should not return 200"
+    );
+
+    let json: serde_json::Value = response.json();
+    assert_eq!(
+        json["type"], "error",
+        "Anthropic error response should have type: \"error\", got: {json}"
+    );
+    assert!(
+        json["error"]["type"].is_string(),
+        "Anthropic error response should have error.type, got: {json}"
+    );
+    assert!(
+        json["error"]["message"].is_string(),
+        "Anthropic error response should have error.message, got: {json}"
+    );
+}
+
+/// Set api_key to "test123". Send to /v1/messages without an Authorization
+/// header. The auth middleware error should be in Anthropic format (has
+/// `type: "error"`).
+#[tokio::test]
+async fn test_anthropic_auth_error_format() {
+    let (server, _mock) = build_test_server_with_provider("mock", "test123").await;
+
+    let body = json!({
+        "model": "test-model",
+        "max_tokens": 1024,
+        "messages": [
+            {"role": "user", "content": "Hello"}
+        ]
+    });
+
+    let response = server
+        .post("/v1/messages")
+        .json(&body)
+        .await;
+
+    response.assert_status(axum::http::StatusCode::UNAUTHORIZED);
+
+    let json: serde_json::Value = response.json();
+    assert_eq!(
+        json["type"], "error",
+        "Anthropic auth error should have type: \"error\", got: {json}"
+    );
+    assert!(
+        json["error"]["type"].is_string(),
+        "Anthropic auth error should have error.type, got: {json}"
+    );
+}
+
+/// Set api_key to "secret". GET /healthz without any Authorization header.
+/// Assert 200 (health endpoint is outside the auth middleware).
+#[tokio::test]
+async fn test_healthz_no_auth_required() {
+    let (server, _mock) = build_test_server_with_provider("mock", "secret").await;
+
+    let response = server.get("/healthz").await;
+
+    response.assert_status_ok();
+}
