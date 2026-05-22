@@ -11,13 +11,23 @@ pub fn build_router(state: AppState) -> Router {
 
     // V1 API routes with auth & rate limiting middlewares
     let v1_routes = Router::new()
-        .route("/chat/completions", post(crate::routes::openai::chat_completions))
+        .route(
+            "/chat/completions",
+            post(crate::routes::openai::chat_completions),
+        )
         .route("/models", get(crate::routes::openai::list_models))
         .route("/messages", post(crate::routes::anthropic::messages))
         .route("/usage", get(crate::routes::usage::get_usage))
+        .route(
+            "/usage/summary",
+            get(crate::routes::usage::get_usage_summary),
+        )
         .route("/usage", delete(crate::routes::usage::reset_usage))
         .layer(axum_mw::from_fn_with_state(state.clone(), middleware::auth))
-        .layer(axum_mw::from_fn_with_state(state.clone(), middleware::rate_limit));
+        .layer(axum_mw::from_fn_with_state(
+            state.clone(),
+            middleware::rate_limit,
+        ));
 
     Router::new()
         .route("/healthz", get(crate::routes::health::healthz))

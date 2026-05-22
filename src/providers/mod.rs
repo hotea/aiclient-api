@@ -53,6 +53,9 @@ pub trait Provider: Send + Sync {
     fn is_healthy(&self) -> bool;
     async fn list_models(&self) -> Result<Vec<Model>>;
     async fn chat(&self, request: ProviderRequest) -> Result<ProviderResponse>;
+    fn prefers_native_anthropic_streaming(&self) -> bool {
+        false
+    }
     fn supports_passthrough(&self, _format: OutputFormat) -> bool {
         false
     }

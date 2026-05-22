@@ -29,10 +29,17 @@ pub fn from_anthropic(req: AnthropicMessagesRequest) -> Result<ProviderRequest> 
         })
         .collect();
 
-    let extra = req
+    let mut extra = req
         .extra
         .map(serde_json::Value::Object)
         .unwrap_or(serde_json::Value::Null);
+
+    if let Some(thinking) = req.thinking {
+        if !extra.is_object() {
+            extra = serde_json::json!({});
+        }
+        extra["thinking"] = thinking;
+    }
 
     Ok(ProviderRequest {
         model,

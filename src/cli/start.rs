@@ -5,6 +5,17 @@ use tracing_subscriber::EnvFilter;
 
 use aiclient_api::auth::TokenStore;
 
+pub fn daemonize_if_needed(foreground: bool, log_file: Option<&str>) -> Result<()> {
+    if foreground {
+        return Ok(());
+    }
+
+    let log_path = log_file
+        .map(PathBuf::from)
+        .unwrap_or_else(aiclient_api::util::xdg::log_path);
+    aiclient_api::daemon::daemonize(&log_path)
+}
+
 pub async fn run(
     host: String,
     port: u16,
@@ -12,10 +23,6 @@ pub async fn run(
     api_key: Option<String>,
     log_file: Option<String>,
 ) -> Result<()> {
-    if let Some(pid) = aiclient_api::daemon::read_pid()? {
-        anyhow::bail!("Daemon already running (pid {})", pid);
-    }
-
     let mut config = aiclient_api::config::load_default_config()?;
     config.server.host = host;
     config.server.port = port;
@@ -27,12 +34,8 @@ pub async fn run(
         .map(PathBuf::from)
         .unwrap_or_else(aiclient_api::util::xdg::log_path);
 
-    if !foreground {
-        aiclient_api::daemon::daemonize(&log_path)?;
-    }
-
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(&config.logging.level));
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&config.logging.level));
     if foreground {
         tracing_subscriber::fmt().with_env_filter(filter).init();
     } else {
@@ -71,63 +74,54 @@ pub async fn run(
                     enabled: true,
                     account_type,
                     ..
-                } => {
-                    match store.load("copilot").await {
-                        Ok(aiclient_api::auth::TokenData::Copilot { github_token, .. }) => {
-                            let provider = aiclient_api::providers::copilot::CopilotProvider::new(
-                                github_token,
-                                account_type.clone(),
-                                &vscode_version,
-                            );
-                            provider.start();
-                            providers.insert("copilot".to_string(), provider);
-                            tracing::info!("Initialized Copilot provider");
-                        }
-                        Ok(_) => {
-                            tracing::warn!("Unexpected token type for copilot provider, skipping");
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                "Failed to load Copilot token, skipping provider: {:#}",
-                                e
-                            );
-                        }
+                } => match store.load("copilot").await {
+                    Ok(aiclient_api::auth::TokenData::Copilot { github_token, .. }) => {
+                        let provider = aiclient_api::providers::copilot::CopilotProvider::new(
+                            github_token,
+                            account_type.clone(),
+                            &vscode_version,
+                        );
+                        provider.start();
+                        providers.insert("copilot".to_string(), provider);
+                        tracing::info!("Initialized Copilot provider");
                     }
-                }
-                aiclient_api::config::types::ProviderConfig::Copilot {
-                    enabled: false, ..
-                } => {
+                    Ok(_) => {
+                        tracing::warn!("Unexpected token type for copilot provider, skipping");
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to load Copilot token, skipping provider: {:#}", e);
+                    }
+                },
+                aiclient_api::config::types::ProviderConfig::Copilot { enabled: false, .. } => {
                     // Provider disabled, skip
                 }
                 aiclient_api::config::types::ProviderConfig::Kiro {
                     enabled: true,
                     region,
                     ..
-                } => {
-                    match store.load("kiro").await {
-                        Ok(token_data) => {
-                            match aiclient_api::providers::kiro::KiroProvider::new(&token_data, region) {
-                                Ok(provider) => {
-                                    provider.start();
-                                    providers.insert(
-                                        "kiro".to_string(),
-                                        provider as std::sync::Arc<dyn aiclient_api::providers::Provider>,
-                                    );
-                                    tracing::info!("Kiro provider initialized");
-                                }
-                                Err(e) => {
-                                    tracing::warn!("Failed to create Kiro provider: {:#}", e);
-                                }
+                } => match store.load("kiro").await {
+                    Ok(token_data) => {
+                        match aiclient_api::providers::kiro::KiroProvider::new(&token_data, region)
+                        {
+                            Ok(provider) => {
+                                provider.start();
+                                providers.insert(
+                                    "kiro".to_string(),
+                                    provider
+                                        as std::sync::Arc<dyn aiclient_api::providers::Provider>,
+                                );
+                                tracing::info!("Kiro provider initialized");
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to create Kiro provider: {:#}", e);
                             }
                         }
-                        Err(e) => {
-                            tracing::warn!("Kiro auth not configured: {:#}", e);
-                        }
                     }
-                }
-                aiclient_api::config::types::ProviderConfig::Kiro {
-                    enabled: false, ..
-                } => {
+                    Err(e) => {
+                        tracing::warn!("Kiro auth not configured: {:#}", e);
+                    }
+                },
+                aiclient_api::config::types::ProviderConfig::Kiro { enabled: false, .. } => {
                     // Provider disabled, skip
                 }
             }
@@ -167,10 +161,8 @@ pub async fn run(
     tracing::info!("Listening on {}", addr);
 
     let shutdown = async {
-        let mut sigterm = tokio::signal::unix::signal(
-            tokio::signal::unix::SignalKind::terminate(),
-        )
-        .expect("failed to install SIGTERM handler");
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler");
         let sigint = tokio::signal::ctrl_c();
         tokio::select! {
             _ = sigterm.recv() => tracing::info!("Received SIGTERM"),

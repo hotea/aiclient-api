@@ -20,7 +20,8 @@ pub fn new_rate_limit_map() -> RateLimitMap {
 
 pub async fn request_id(mut req: Request, next: Next) -> Response {
     let id = Uuid::new_v4().to_string();
-    req.headers_mut().insert("x-request-id", id.parse().unwrap());
+    req.headers_mut()
+        .insert("x-request-id", id.parse().unwrap());
     next.run(req).await
 }
 
@@ -42,13 +43,10 @@ fn middleware_error(uri: &axum::http::Uri, err: AppError) -> Response {
 }
 
 /// Bearer token auth middleware.
-/// If `config.api_key` is non-empty, validates `Authorization: Bearer <key>`.
+/// If `config.api_key` is non-empty, validates `Authorization: Bearer <key>`
+/// or `x-api-key: <key>` for better Anthropic compatibility.
 /// If `api_key` is empty, all requests are allowed through.
-pub async fn auth(
-    State(state): State<AppState>,
-    req: Request,
-    next: Next,
-) -> Response {
+pub async fn auth(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let config = state.config.load();
     let api_key = &config.api_key;
 
@@ -61,8 +59,21 @@ pub async fn auth(
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .map(String::from);
+    let x_api_key = req
+        .headers()
+        .get("x-api-key")
+        .and_then(|v| v.to_str().ok())
+        .map(String::from);
 
     let uri = req.uri().clone();
+
+    if let Some(key) = x_api_key {
+        return if key == *api_key {
+            next.run(req).await
+        } else {
+            middleware_error(&uri, AppError::Unauthorized("Invalid API key".to_string()))
+        };
+    }
 
     match auth_header.as_deref() {
         Some(header) if header.starts_with("Bearer ") => {
@@ -81,7 +92,9 @@ pub async fn auth(
         ),
         None => middleware_error(
             &uri,
-            AppError::Unauthorized("Missing Authorization header".to_string()),
+            AppError::Unauthorized(
+                "Missing API key in Authorization or x-api-key header".to_string(),
+            ),
         ),
     }
 }

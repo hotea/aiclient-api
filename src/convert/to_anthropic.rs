@@ -15,15 +15,48 @@ pub fn to_anthropic(resp: &serde_json::Value, model: &str) -> serde_json::Value 
     }
 
     // Try to extract content from OpenAI-style response
-    let (content_text, stop_reason, usage) =
+    let (content_blocks, stop_reason, usage) =
         if let Some(choices) = resp.get("choices").and_then(|c| c.as_array()) {
-            let text = choices
-                .first()
-                .and_then(|c| c.get("message"))
+            let message = choices.first().and_then(|c| c.get("message"));
+            let mut blocks = Vec::new();
+
+            if let Some(text) = message
                 .and_then(|m| m.get("content"))
                 .and_then(|c| c.as_str())
-                .unwrap_or("")
-                .to_string();
+                .filter(|text| !text.is_empty())
+            {
+                blocks.push(serde_json::json!({
+                    "type": "text",
+                    "text": text,
+                }));
+            }
+
+            if let Some(tool_calls) = message
+                .and_then(|m| m.get("tool_calls"))
+                .and_then(|t| t.as_array())
+            {
+                for tool_call in tool_calls {
+                    let Some(id) = tool_call.get("id").and_then(|v| v.as_str()) else {
+                        continue;
+                    };
+                    let function = tool_call.get("function").unwrap_or(tool_call);
+                    let Some(name) = function.get("name").and_then(|v| v.as_str()) else {
+                        continue;
+                    };
+                    let input = function
+                        .get("arguments")
+                        .map(parse_json_or_string)
+                        .unwrap_or_else(|| serde_json::json!({}));
+
+                    blocks.push(serde_json::json!({
+                        "type": "tool_use",
+                        "id": id,
+                        "name": name,
+                        "input": input,
+                    }));
+                }
+            }
+
             let finish = choices
                 .first()
                 .and_then(|c| c.get("finish_reason"))
@@ -37,9 +70,9 @@ pub fn to_anthropic(resp: &serde_json::Value, model: &str) -> serde_json::Value 
                 .unwrap_or("end_turn")
                 .to_string();
             let usage_val = resp.get("usage").cloned();
-            (text, finish, usage_val)
+            (blocks, finish, usage_val)
         } else {
-            ("".to_string(), "end_turn".to_string(), None)
+            (Vec::new(), "end_turn".to_string(), None)
         };
 
     let id = format!("msg_{}", &Uuid::new_v4().to_string().replace('-', "")[..24]);
@@ -62,17 +95,37 @@ pub fn to_anthropic(resp: &serde_json::Value, model: &str) -> serde_json::Value 
         "id": id,
         "type": "message",
         "role": "assistant",
-        "content": [{
-            "type": "text",
-            "text": content_text,
-        }],
+        "content": if content_blocks.is_empty() {
+            vec![serde_json::json!({
+                "type": "text",
+                "text": "",
+            })]
+        } else {
+            content_blocks
+        },
         "model": model,
         "stop_reason": stop_reason,
     });
+
+    if let Some(conversation_id) = resp.get("conversation_id").cloned() {
+        result["conversation_id"] = conversation_id;
+    }
+    if let Some(utterance_id) = resp.get("utterance_id").cloned() {
+        result["utterance_id"] = utterance_id;
+    }
 
     if !anthropic_usage.is_null() {
         result["usage"] = anthropic_usage;
     }
 
     result
+}
+
+fn parse_json_or_string(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(text) => {
+            serde_json::from_str(text).unwrap_or_else(|_| serde_json::Value::String(text.clone()))
+        }
+        other => other.clone(),
+    }
 }

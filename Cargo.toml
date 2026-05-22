@@ -48,6 +48,7 @@ arc-swap = "1"
 
 # Auth & crypto
 sha2 = "0.10"
+crc32fast = "1"
 rand = "0.9"
 mac_address = "1"
 uuid = { version = "1", features = ["v4"] }

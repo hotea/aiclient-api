@@ -16,9 +16,9 @@ pub fn into_sse_response(
     format: OutputFormat,
     model: String,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let converted = stream.filter_map(move |result| {
-        let model = model.clone();
-        async move {
+    let converted = stream
+        .map(move |result| {
+            let model = model.clone();
             match result {
                 Ok(bytes) => {
                     let converted_bytes = match format {
@@ -27,37 +27,63 @@ pub fn into_sse_response(
                     };
 
                     if converted_bytes.is_empty() {
-                        return None;
+                        return Vec::new();
                     }
 
-                    // Parse SSE lines and emit events
                     let text = match std::str::from_utf8(&converted_bytes) {
                         Ok(s) => s.to_string(),
-                        Err(_) => return None,
+                        Err(_) => return Vec::new(),
                     };
 
-                    // Extract data from SSE formatted content
-                    let data_lines: Vec<&str> = text
-                        .lines()
-                        .filter_map(|line| line.strip_prefix("data: "))
-                        .collect();
-
-                    if data_lines.is_empty() {
-                        return None;
-                    }
-
-                    // For simplicity, emit the first data chunk
-                    // In production, this could be split into multiple events
-                    let data = data_lines.join("\n");
-                    Some(Ok::<Event, Infallible>(Event::default().data(data)))
+                    parse_sse_events(&text)
+                        .into_iter()
+                        .map(|(event_name, data)| {
+                            let mut event = Event::default();
+                            if let Some(name) = event_name {
+                                event = event.event(name);
+                            }
+                            Ok::<Event, Infallible>(event.data(data))
+                        })
+                        .collect::<Vec<_>>()
                 }
                 Err(e) => {
                     error!("Stream error: {}", e);
-                    None
+                    Vec::new()
                 }
             }
-        }
-    });
+        })
+        .flat_map(futures::stream::iter);
 
     Sse::new(converted).keep_alive(KeepAlive::default())
+}
+
+fn parse_sse_events(text: &str) -> Vec<(Option<String>, String)> {
+    let mut events = Vec::new();
+    let mut current_event: Option<String> = None;
+    let mut current_data: Vec<String> = Vec::new();
+
+    for line in text.lines() {
+        if line.is_empty() {
+            if !current_data.is_empty() {
+                events.push((current_event.take(), current_data.join("\n")));
+                current_data.clear();
+            }
+            continue;
+        }
+
+        if let Some(name) = line.strip_prefix("event: ") {
+            current_event = Some(name.to_string());
+            continue;
+        }
+
+        if let Some(data) = line.strip_prefix("data: ") {
+            current_data.push(data.to_string());
+        }
+    }
+
+    if !current_data.is_empty() {
+        events.push((current_event, current_data.join("\n")));
+    }
+
+    events
 }

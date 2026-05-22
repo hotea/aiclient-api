@@ -59,18 +59,16 @@ pub fn chunk_to_anthropic(chunk: &[u8], _model: &str) -> Vec<u8> {
         Err(_) => return chunk.to_vec(),
     };
 
+    if text.contains("event: ") {
+        return chunk.to_vec();
+    }
+
     let mut result = Vec::new();
     for line in text.lines() {
         if let Some(data) = line.strip_prefix("data: ") {
             if data.trim() == "[DONE]" {
-                // OpenAI uses [DONE], Anthropic uses message_stop event
-                // We'll emit the Anthropic message_stop event
-                let stop_event = serde_json::json!({"type": "message_stop"});
-                let serialized = serde_json::to_string(&stop_event).unwrap_or_default();
-                result.extend_from_slice(b"event: message_stop\n");
-                result.extend_from_slice(b"data: ");
-                result.extend_from_slice(serialized.as_bytes());
-                result.extend_from_slice(b"\n\n");
+                // Translate OpenAI's stream terminator into Anthropic's semantic stop event.
+                result.extend_from_slice(b"data: {\"type\":\"message_stop\"}\n\n");
                 continue;
             }
             // Try to parse as JSON
@@ -86,6 +84,9 @@ pub fn chunk_to_anthropic(chunk: &[u8], _model: &str) -> Vec<u8> {
                             | "message_delta"
                             | "message_stop"
                     ) {
+                        result.extend_from_slice(b"event: ");
+                        result.extend_from_slice(event_type.as_bytes());
+                        result.extend_from_slice(b"\n");
                         result.extend_from_slice(b"data: ");
                         result.extend_from_slice(data.as_bytes());
                         result.extend_from_slice(b"\n\n");

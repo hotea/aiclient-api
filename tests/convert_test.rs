@@ -1,11 +1,10 @@
-use aiclient_api::convert::openai_types::*;
 use aiclient_api::convert::anthropic_types::*;
-use aiclient_api::convert::{to_openai, to_anthropic, from_openai, from_anthropic};
+use aiclient_api::convert::openai_types::*;
+use aiclient_api::convert::{from_anthropic, from_openai, to_anthropic, to_openai};
 
 #[test]
 fn test_openai_request_deserialize() {
-    let json =
-        r#"{"model":"gpt-4","messages":[{"role":"user","content":"hello"}],"stream":false}"#;
+    let json = r#"{"model":"gpt-4","messages":[{"role":"user","content":"hello"}],"stream":false}"#;
     let req: OpenAIChatRequest = serde_json::from_str(json).unwrap();
     assert_eq!(req.model, "gpt-4");
     assert_eq!(req.messages.len(), 1);
@@ -14,7 +13,8 @@ fn test_openai_request_deserialize() {
 
 #[test]
 fn test_anthropic_request_deserialize() {
-    let json = r#"{"model":"claude-3","messages":[{"role":"user","content":"hello"}],"max_tokens":1024}"#;
+    let json =
+        r#"{"model":"claude-3","messages":[{"role":"user","content":"hello"}],"max_tokens":1024}"#;
     let req: AnthropicMessagesRequest = serde_json::from_str(json).unwrap();
     assert_eq!(req.model, "claude-3");
     assert_eq!(req.max_tokens, 1024);
@@ -52,13 +52,14 @@ fn test_openai_response_serialize() {
 
 #[test]
 fn test_from_openai_extracts_system() {
-
     let req = OpenAIChatRequest {
         model: "gpt-4".into(),
         messages: vec![
             OpenAIMessage {
                 role: "system".into(),
-                content: Some(serde_json::Value::String("You are a helpful assistant.".into())),
+                content: Some(serde_json::Value::String(
+                    "You are a helpful assistant.".into(),
+                )),
                 name: None,
                 tool_calls: None,
                 tool_call_id: None,
@@ -88,7 +89,6 @@ fn test_from_openai_extracts_system() {
 
 #[test]
 fn test_from_anthropic_uses_top_level_system() {
-
     let req = AnthropicMessagesRequest {
         model: "claude-3".into(),
         messages: vec![AnthropicMessage {
@@ -180,6 +180,23 @@ fn test_to_openai_stop_reason_mapping() {
 }
 
 #[test]
+fn test_to_openai_converts_tool_use_blocks() {
+    let resp = serde_json::json!({
+        "content": [
+            {"type": "text", "text": "Calling tool"},
+            {"type": "tool_use", "id": "toolu_123", "name": "get_weather", "input": {"location": "Tokyo"}}
+        ],
+        "stop_reason": "tool_use"
+    });
+
+    let result = to_openai(&resp, "claude-3");
+    let message = &result["choices"][0]["message"];
+    assert_eq!(message["content"], "Calling tool");
+    assert_eq!(message["tool_calls"][0]["id"], "toolu_123");
+    assert_eq!(message["tool_calls"][0]["function"]["name"], "get_weather");
+}
+
+#[test]
 fn test_to_openai_generates_id_and_model() {
     let resp = serde_json::json!({
         "content": [{"type": "text", "text": "hi"}],
@@ -187,8 +204,24 @@ fn test_to_openai_generates_id_and_model() {
     });
     let result = to_openai(&resp, "my-model");
     let id = result["id"].as_str().unwrap();
-    assert!(id.starts_with("chatcmpl-"), "id should start with 'chatcmpl-', got: {id}");
+    assert!(
+        id.starts_with("chatcmpl-"),
+        "id should start with 'chatcmpl-', got: {id}"
+    );
     assert_eq!(result["model"], "my-model");
+}
+
+#[test]
+fn test_to_openai_preserves_conversation_metadata() {
+    let resp = serde_json::json!({
+        "content": [{"type": "text", "text": "hello"}],
+        "stop_reason": "end_turn",
+        "conversation_id": "conv_123",
+        "utterance_id": "utt_456"
+    });
+    let result = to_openai(&resp, "claude-3");
+    assert_eq!(result["conversation_id"], "conv_123");
+    assert_eq!(result["utterance_id"], "utt_456");
 }
 
 // --- to_anthropic tests ---
@@ -243,7 +276,51 @@ fn test_to_anthropic_generates_id() {
     });
     let result = to_anthropic(&resp, "claude-3");
     let id = result["id"].as_str().unwrap();
-    assert!(id.starts_with("msg_"), "id should start with 'msg_', got: {id}");
+    assert!(
+        id.starts_with("msg_"),
+        "id should start with 'msg_', got: {id}"
+    );
+}
+
+#[test]
+fn test_to_anthropic_preserves_conversation_metadata() {
+    let resp = serde_json::json!({
+        "choices": [{"message": {"role": "assistant", "content": "hello"}, "finish_reason": "stop"}],
+        "conversation_id": "conv_123",
+        "utterance_id": "utt_456"
+    });
+    let result = to_anthropic(&resp, "claude-3");
+    assert_eq!(result["conversation_id"], "conv_123");
+    assert_eq!(result["utterance_id"], "utt_456");
+}
+
+#[test]
+fn test_to_anthropic_converts_openai_tool_calls() {
+    let resp = serde_json::json!({
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": "Using a tool",
+                "tool_calls": [{
+                    "id": "call_abc",
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "arguments": "{\"location\":\"Tokyo\"}"
+                    }
+                }]
+            },
+            "finish_reason": "tool_calls"
+        }]
+    });
+
+    let result = to_anthropic(&resp, "claude-3");
+    let content = result["content"].as_array().unwrap();
+    assert_eq!(content[0]["type"], "text");
+    assert_eq!(content[1]["type"], "tool_use");
+    assert_eq!(content[1]["id"], "call_abc");
+    assert_eq!(content[1]["name"], "get_weather");
+    assert_eq!(content[1]["input"]["location"], "Tokyo");
 }
 
 // --- from_openai additional tests ---
@@ -317,7 +394,10 @@ fn test_from_openai_preserves_tool_calls() {
     let pr = from_openai(req).unwrap();
     assert_eq!(pr.messages.len(), 1);
     let msg = &pr.messages[0];
-    assert!(msg.get("tool_calls").is_some(), "tool_calls field should be preserved");
+    assert!(
+        msg.get("tool_calls").is_some(),
+        "tool_calls field should be preserved"
+    );
     assert_eq!(msg["tool_calls"][0]["id"], "call_abc");
 }
 
@@ -341,7 +421,10 @@ fn test_from_anthropic_no_system() {
         extra: None,
     };
     let pr = from_anthropic(req).unwrap();
-    assert!(pr.system.is_none(), "system should be None when not provided");
+    assert!(
+        pr.system.is_none(),
+        "system should be None when not provided"
+    );
 }
 
 #[test]
@@ -362,5 +445,32 @@ fn test_from_anthropic_stream_flag() {
         extra: None,
     };
     let pr = from_anthropic(req).unwrap();
-    assert!(pr.stream, "stream=true should be preserved in ProviderRequest");
+    assert!(
+        pr.stream,
+        "stream=true should be preserved in ProviderRequest"
+    );
+}
+
+#[test]
+fn test_from_anthropic_preserves_thinking_in_extra() {
+    let req = AnthropicMessagesRequest {
+        model: "claude-3".into(),
+        messages: vec![AnthropicMessage {
+            role: "user".into(),
+            content: serde_json::Value::String("Hi".into()),
+        }],
+        system: None,
+        max_tokens: 128,
+        stream: Some(false),
+        temperature: None,
+        tools: None,
+        tool_choice: None,
+        thinking: Some(serde_json::json!({"type": "enabled", "budget_tokens": 1024})),
+        extra: None,
+    };
+
+    let pr = from_anthropic(req).unwrap();
+
+    assert_eq!(pr.extra["thinking"]["type"], "enabled");
+    assert_eq!(pr.extra["thinking"]["budget_tokens"], 1024);
 }
