@@ -5,7 +5,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::json;
 
-use aiclient_api::config::types::Config;
+use aiclient_api::config::types::{Config, ProviderRoutingMode};
 use aiclient_api::providers::{Model, Provider, ProviderRequest, ProviderResponse};
 use aiclient_api::server::state::AppState;
 
@@ -39,6 +39,10 @@ impl Provider for MockProvider {
 
     fn is_healthy(&self) -> bool {
         true
+    }
+
+    fn default_model(&self) -> Option<String> {
+        Some("test-model".to_string())
     }
 
     async fn list_models(&self) -> Result<Vec<Model>> {
@@ -76,6 +80,7 @@ fn test_config(default_provider: &str, api_key: &str) -> Config {
     Config {
         default_provider: default_provider.to_string(),
         api_key: api_key.to_string(),
+        auth_enabled: !api_key.is_empty(),
         ..Config::default()
     }
 }
@@ -84,7 +89,8 @@ async fn build_test_server_with_provider(
     provider_name: &str,
     api_key: &str,
 ) -> (axum_test::TestServer, Arc<MockProvider>) {
-    let config = test_config(provider_name, api_key);
+    let mut config = test_config(provider_name, api_key);
+    config.routing.mode = ProviderRoutingMode::Fixed;
     let state = AppState::new(config);
     let mock = Arc::new(MockProvider::new(provider_name));
     {
@@ -408,6 +414,29 @@ async fn test_auth_middleware_no_key_config_allows_all() {
 
     let response = server
         .post("/v1/chat/completions")
+        .json(&body)
+        .await;
+
+    response.assert_status_ok();
+}
+
+#[tokio::test]
+async fn test_auth_disabled_allows_arbitrary_key() {
+    let (server, _mock) = build_test_server_with_provider("mock", "").await;
+
+    let body = json!({
+        "model": "test-model",
+        "messages": [
+            {"role": "user", "content": "Hello"}
+        ]
+    });
+
+    let response = server
+        .post("/v1/chat/completions")
+        .add_header(
+            axum::http::header::AUTHORIZATION,
+            axum::http::HeaderValue::from_static("Bearer anything"),
+        )
         .json(&body)
         .await;
 

@@ -36,6 +36,11 @@ pub enum Command {
         #[command(subcommand)]
         action: AuthAction,
     },
+    /// Gateway API key management
+    ApiKey {
+        #[command(subcommand)]
+        action: ApiKeyAction,
+    },
     /// Show daemon status
     Status,
     /// Configuration management
@@ -85,6 +90,22 @@ pub enum AuthAction {
     List,
     /// Revoke a provider's tokens
     Revoke { provider: String },
+}
+
+#[derive(Subcommand)]
+pub enum ApiKeyAction {
+    /// Generate a gateway API key, save it to config, and enable API key auth
+    Generate {
+        /// Only print a generated key; do not save config or enable auth
+        #[arg(long)]
+        print_only: bool,
+    },
+    /// Enable gateway API key auth using the configured key
+    Enable,
+    /// Disable gateway API key auth; requests with no key or any key pass through
+    Disable,
+    /// Show whether gateway API key auth is enabled without revealing the key
+    Show,
 }
 
 #[derive(Subcommand)]

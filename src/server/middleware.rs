@@ -43,15 +43,25 @@ fn middleware_error(uri: &axum::http::Uri, err: AppError) -> Response {
 }
 
 /// Bearer token auth middleware.
-/// If `config.api_key` is non-empty, validates `Authorization: Bearer <key>`
-/// or `x-api-key: <key>` for better Anthropic compatibility.
-/// If `api_key` is empty, all requests are allowed through.
+/// If `config.auth_enabled` is true, validates `Authorization: Bearer <key>` or
+/// `x-api-key: <key>` for better Anthropic compatibility. If auth is disabled,
+/// all requests are allowed through even when they send arbitrary auth headers.
 pub async fn auth(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let config = state.config.load();
     let api_key = &config.api_key;
 
-    if api_key.is_empty() {
+    if !config.auth_enabled {
         return next.run(req).await;
+    }
+
+    if api_key.is_empty() {
+        let uri = req.uri().clone();
+        return middleware_error(
+            &uri,
+            AppError::Unauthorized(
+                "API key auth is enabled but no API key is configured".to_string(),
+            ),
+        );
     }
 
     let auth_header = req

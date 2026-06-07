@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
-use aiclient_api::config::types::Config;
+use aiclient_api::config::types::{Config, ProviderRoutingMode};
 use aiclient_api::providers::common::{CommonProvider, CommonProviderConfig};
 use aiclient_api::providers::Provider;
 use aiclient_api::server::state::AppState;
@@ -112,10 +112,11 @@ async fn build_gateway(
         base_url
     };
 
-    let config = Config {
+    let mut config = Config {
         default_provider: provider_name.to_string(),
         ..Config::default()
     };
+    config.routing.mode = ProviderRoutingMode::Fixed;
     let state = AppState::new(config);
     let provider =
         CommonProvider::new(common_config(provider_name, provider_base, models)).unwrap();
@@ -256,5 +257,45 @@ async fn test_common_provider_rotates_multiple_api_keys() {
     assert_eq!(
         auth_headers.as_slice(),
         ["Bearer key-one", "Bearer key-two", "Bearer key-one",]
+    );
+}
+
+#[tokio::test]
+async fn test_auto_routing_uses_generic_model_and_provider_default_model() {
+    let (upstream_base, upstream_state) = start_mock_upstream().await;
+    let mut config = Config::default();
+    config.routing.weights.insert("auto-common".to_string(), 1);
+    let state = AppState::new(config);
+    let provider = CommonProvider::new(common_config(
+        "auto-common",
+        format!("{}/v1", upstream_base),
+        vec!["remote-default-model".to_string()],
+    ))
+    .unwrap();
+    {
+        let mut providers = state.providers.write().await;
+        providers.insert("auto-common".to_string(), provider as Arc<dyn Provider>);
+    }
+    let app = aiclient_api::server::build_router(state);
+    let server = axum_test::TestServer::new(app);
+
+    let models_response = server.get("/v1/models").await;
+    models_response.assert_status_ok();
+    let models_body: Value = models_response.json();
+    assert_eq!(models_body["data"][0]["id"], "auto");
+    assert_eq!(models_body["data"][0]["owned_by"], "aiclient-api");
+
+    let response = server
+        .post("/v1/chat/completions")
+        .json(&json!({
+            "model": "auto",
+            "messages": [{"role": "user", "content": "hello"}]
+        }))
+        .await;
+
+    response.assert_status_ok();
+    assert_eq!(
+        upstream_state.requests.lock().await[0]["model"],
+        "remote-default-model"
     );
 }

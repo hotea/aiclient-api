@@ -29,7 +29,9 @@ pub async fn resolve_provider(
                 ensure_fixed_provider(name, fixed_name)?;
             }
             if let Some(provider) = providers.get(fixed_name) {
-                return Ok((provider.clone(), actual_model.to_string()));
+                let resolved_model =
+                    resolve_generic_model(provider, actual_model, config.as_ref())?;
+                return Ok((provider.clone(), resolved_model));
             }
 
             bail!("Fixed provider '{}' not found", fixed_name);
@@ -44,13 +46,16 @@ pub async fn resolve_provider(
 
             if let Some(name) = header_provider {
                 if let Some(provider) = providers.get(name) {
-                    return Ok((provider.clone(), model.to_string()));
+                    let resolved_model = resolve_generic_model(provider, model, config.as_ref())?;
+                    return Ok((provider.clone(), resolved_model));
                 }
                 bail!("Provider '{}' not found", name);
             }
 
+            ensure_auto_model(model, config.as_ref())?;
             let provider = resolve_auto_provider(state, &providers, config.as_ref())?;
-            Ok((provider, model.to_string()))
+            let resolved_model = resolve_generic_model(&provider, model, config.as_ref())?;
+            Ok((provider, resolved_model))
         }
     }
 }
@@ -72,6 +77,43 @@ fn ensure_fixed_provider(requested: &str, fixed_name: &str) -> Result<()> {
             fixed_name
         )
     }
+}
+
+fn is_generic_model(model: &str, config: &Config) -> bool {
+    config
+        .routing
+        .models
+        .iter()
+        .any(|generic_model| generic_model == model)
+}
+
+fn ensure_auto_model(model: &str, config: &Config) -> Result<()> {
+    if is_generic_model(model, config) {
+        return Ok(());
+    }
+
+    bail!(
+        "Automatic routing requires a generic model name. Use one of: {}",
+        config.routing.models.join(", ")
+    )
+}
+
+fn resolve_generic_model(
+    provider: &Arc<dyn Provider>,
+    model: &str,
+    config: &Config,
+) -> Result<String> {
+    if !is_generic_model(model, config) {
+        return Ok(model.to_string());
+    }
+
+    provider.default_model().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Provider '{}' does not have a default model for generic model '{}'",
+            provider.name(),
+            model
+        )
+    })
 }
 
 fn resolve_auto_provider(
@@ -148,6 +190,10 @@ mod tests {
             self.healthy
         }
 
+        fn default_model(&self) -> Option<String> {
+            Some(format!("{}-default", self.name))
+        }
+
         async fn list_models(&self) -> Result<Vec<Model>> {
             Ok(Vec::new())
         }
@@ -176,13 +222,16 @@ mod tests {
     async fn auto_routing_rotates_loaded_providers_by_default() {
         let state = state_with_providers(Config::default(), &["beta", "alpha"]).await;
 
-        let (first, _) = resolve_provider(&state, "model", None).await.unwrap();
-        let (second, _) = resolve_provider(&state, "model", None).await.unwrap();
-        let (third, _) = resolve_provider(&state, "model", None).await.unwrap();
+        let (first, first_model) = resolve_provider(&state, "auto", None).await.unwrap();
+        let (second, second_model) = resolve_provider(&state, "auto", None).await.unwrap();
+        let (third, third_model) = resolve_provider(&state, "auto", None).await.unwrap();
 
         assert_eq!(first.name(), "alpha");
+        assert_eq!(first_model, "alpha-default");
         assert_eq!(second.name(), "beta");
+        assert_eq!(second_model, "beta-default");
         assert_eq!(third.name(), "alpha");
+        assert_eq!(third_model, "alpha-default");
     }
 
     #[tokio::test]
@@ -194,7 +243,7 @@ mod tests {
 
         let mut selected = Vec::new();
         for _ in 0..4 {
-            let (provider, _) = resolve_provider(&state, "model", None).await.unwrap();
+            let (provider, _) = resolve_provider(&state, "auto", None).await.unwrap();
             selected.push(provider.name().to_string());
         }
 
@@ -208,9 +257,10 @@ mod tests {
         config.routing.provider = "beta".to_string();
         let state = state_with_providers(config, &["alpha", "beta"]).await;
 
-        let (provider, _) = resolve_provider(&state, "model", None).await.unwrap();
+        let (provider, model) = resolve_provider(&state, "auto", None).await.unwrap();
 
         assert_eq!(provider.name(), "beta");
+        assert_eq!(model, "beta-default");
     }
 
     #[tokio::test]
@@ -266,8 +316,21 @@ mod tests {
             providers.insert("beta".to_string(), MockProvider::new("beta"));
         }
 
-        let (provider, _) = resolve_provider(&state, "model", None).await.unwrap();
+        let (provider, model) = resolve_provider(&state, "auto", None).await.unwrap();
 
         assert_eq!(provider.name(), "beta");
+        assert_eq!(model, "beta-default");
+    }
+
+    #[tokio::test]
+    async fn auto_routing_rejects_provider_specific_unprefixed_models() {
+        let state = state_with_providers(Config::default(), &["alpha", "beta"]).await;
+
+        let err = match resolve_provider(&state, "provider-specific-model", None).await {
+            Ok((provider, _)) => panic!("unexpected provider: {}", provider.name()),
+            Err(err) => err,
+        };
+
+        assert!(err.to_string().contains("generic model name"));
     }
 }

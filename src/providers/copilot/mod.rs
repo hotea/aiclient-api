@@ -125,6 +125,10 @@ impl Provider for CopilotProvider {
         self.healthy.load(Ordering::Relaxed)
     }
 
+    fn default_model(&self) -> Option<String> {
+        Some("gpt-4o".to_string())
+    }
+
     async fn list_models(&self) -> Result<Vec<Model>> {
         let copilot_token = self.get_copilot_token().await?;
         models::fetch_models(&self.client, &self.headers, &copilot_token).await

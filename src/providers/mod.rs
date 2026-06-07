@@ -57,6 +57,9 @@ pub enum OutputFormat {
 pub trait Provider: Send + Sync {
     fn name(&self) -> &str;
     fn is_healthy(&self) -> bool;
+    fn default_model(&self) -> Option<String> {
+        None
+    }
     async fn list_models(&self) -> Result<Vec<Model>>;
     async fn chat(&self, request: ProviderRequest) -> Result<ProviderResponse>;
     fn prefers_native_anthropic_streaming(&self) -> bool {

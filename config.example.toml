@@ -4,7 +4,10 @@ default_format = "openai"           # "openai" | "anthropic"
 # Legacy fallback provider for fixed routing when routing.provider is empty
 default_provider = "copilot"
 
-# API key to protect the gateway (empty string = no auth required)
+# Gateway API key auth is disabled by default. When disabled, requests with no
+# key or any key pass through. Run `aiclient-api api-key generate` to create a
+# key and enable auth.
+auth_enabled = false
 api_key = ""
 
 # Common provider API keys can be stored in:
@@ -20,6 +23,9 @@ api_key = ""
 # fixed = always use routing.provider (or default_provider if routing.provider is empty)
 mode = "auto"
 provider = ""
+# Generic model names exposed by /v1/models in auto mode.
+# Requests using these names are mapped to the selected provider's first/default model.
+models = ["auto"]
 
 [routing.weights]
 # Providers not listed here default to weight 1. Set weight 0 to exclude one from auto routing.

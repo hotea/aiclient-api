@@ -963,6 +963,10 @@ impl Provider for KiroProvider {
         self.healthy.load(Ordering::Relaxed)
     }
 
+    fn default_model(&self) -> Option<String> {
+        Some("claude-sonnet-4-6".to_string())
+    }
+
     fn prefers_native_anthropic_streaming(&self) -> bool {
         true
     }

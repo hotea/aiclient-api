@@ -25,6 +25,7 @@ pub async fn run(
     config.server.port = port;
     if let Some(key) = api_key {
         config.api_key = key;
+        config.auth_enabled = true;
     }
 
     let log_path = log_file

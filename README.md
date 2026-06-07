@@ -65,6 +65,9 @@ aiclient-api start --foreground
 
 # Custom port and API key
 aiclient-api start --port 8080 --api-key my-secret
+
+# Persist and enable gateway API key auth
+aiclient-api api-key generate
 ```
 
 ### 3. Use it
@@ -152,11 +155,13 @@ Config file: `~/.config/aiclient-api/config.toml`
 ```toml
 default_format = "openai"       # "openai" or "anthropic"
 default_provider = "copilot"    # fixed-route fallback when routing.provider is empty
-api_key = ""                    # empty = no auth required
+auth_enabled = false            # false = no key required; any provided key is accepted
+api_key = ""                    # set by `aiclient-api api-key generate`
 
 [routing]
 mode = "auto"                   # "auto" or "fixed"
 provider = ""                   # fixed provider; empty falls back to default_provider
+models = ["auto"]               # generic model names exposed in auto mode
 
 [routing.weights]
 # Used only in auto mode. Missing providers default to weight 1; 0 excludes a provider.
@@ -226,6 +231,10 @@ level = "info"
 | `aiclient-api auth kiro --start-url <url> --region <region>` | Kiro IAM Identity Center auth |
 | `aiclient-api auth list` | List authenticated providers |
 | `aiclient-api auth revoke <provider>` | Revoke a provider's tokens |
+| `aiclient-api api-key generate` | Generate a gateway API key, save it, and enable auth |
+| `aiclient-api api-key enable` | Enable gateway API key auth using the configured key |
+| `aiclient-api api-key disable` | Disable gateway API key auth; no key or any key passes |
+| `aiclient-api api-key show` | Show gateway API key auth status without revealing the key |
 | `aiclient-api models` | List available models from all providers |
 | `aiclient-api config init` | Interactive configuration wizard |
 | `aiclient-api config show` | Show current config |
@@ -239,6 +248,23 @@ level = "info"
 `provider enable` / `provider disable` hot-swap the running daemon without a
 restart. Edit `config.toml` and run `config reload` when you want the change to
 persist across restarts.
+
+Gateway API key auth is disabled by default. When `auth_enabled = false`,
+requests without a key and requests with any `Authorization`/`x-api-key` value
+are accepted. To require a key:
+
+```bash
+aiclient-api api-key generate
+```
+
+The command writes a generated key to `config.toml`, sets
+`auth_enabled = true`, and hot-reloads the daemon when it is running. Send the
+key as either `Authorization: Bearer <key>` or `x-api-key: <key>`. To turn auth
+off while keeping the key in config:
+
+```bash
+aiclient-api api-key disable
+```
 
 Provider names are the table names under `[providers.*]` (for example
 `aihubmix`, `openrouter`, `opencode`, or `nvidia`). `common` is a provider type; running
@@ -278,7 +304,7 @@ Models are routed by three mechanisms, in priority order:
 
 1. **Model prefix** — `copilot/gpt-4o` routes to the `copilot` provider with model `gpt-4o`
 2. **X-Provider header** — `X-Provider: kiro` routes to the `kiro` provider
-3. **Routing config** — `routing.mode = "auto"` weighted round-robins across running healthy providers; `routing.mode = "fixed"` always uses `routing.provider`
+3. **Routing config** — `routing.mode = "auto"` uses generic model names and weighted round-robins across running healthy providers; `routing.mode = "fixed"` always uses `routing.provider`
 
 `type = "common"` providers are OpenAI-compatible upstreams. You can configure
 multiple instances under different provider names, then route with model prefixes
@@ -352,17 +378,34 @@ provider = "aihubmix"
 ```
 
 In auto mode (the default), unprefixed requests rotate across all running
-healthy providers. Weights control the weighted round-robin sequence:
+healthy providers. The client-facing model name is generic (`auto` by default);
+the gateway maps it to the selected provider's first/default real model.
+Weights control the weighted round-robin sequence:
 
 ```toml
 [routing]
 mode = "auto"
+models = ["auto"]
 
 [routing.weights]
 aihubmix = 2
 nvidia = 1
 copilot = 0  # exclude from auto routing
 ```
+
+Auto-mode client request:
+
+```bash
+curl http://127.0.0.1:9090/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "messages": [{"role": "user", "content": "hello"}]
+  }'
+```
+
+In auto mode, `GET /v1/models` returns the configured generic model names (for
+example `auto`) instead of provider-specific names.
 
 In auto mode, explicit model prefixes and `X-Provider` override automatic
 selection for that request. In fixed mode, they must match the configured
@@ -595,7 +638,8 @@ curl -X DELETE http://127.0.0.1:9090/v1/usage
 ```toml
 default_format = "openai"       # "openai" 或 "anthropic"
 default_provider = "copilot"    # 无前缀时的默认 Provider
-api_key = ""                    # 留空 = 不需要认证
+auth_enabled = false            # false = 不需要认证；不传 key 或传任意 key 都通过
+api_key = ""                    # 可用 `aiclient-api api-key generate` 生成
 
 [server]
 host = "127.0.0.1"
@@ -629,6 +673,10 @@ level = "info"
 | `aiclient-api auth kiro --start-url <url> --region <region>` | Kiro IAM Identity Center 认证 |
 | `aiclient-api auth list` | 列出已认证的 Provider |
 | `aiclient-api auth revoke <provider>` | 撤销指定 Provider 的 Token |
+| `aiclient-api api-key generate` | 生成网关 API key，保存配置并启用认证 |
+| `aiclient-api api-key enable` | 使用已配置 key 启用网关认证 |
+| `aiclient-api api-key disable` | 关闭网关认证；不传 key 或传任意 key 都通过 |
+| `aiclient-api api-key show` | 查看网关认证状态，不显示 key 明文 |
 | `aiclient-api models` | 列出所有 Provider 的可用模型 |
 | `aiclient-api config init` | 交互式配置向导 |
 | `aiclient-api config show` | 显示当前配置 |

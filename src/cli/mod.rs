@@ -1,6 +1,7 @@
 mod commands;
 pub use commands::*;
 
+pub mod api_key_cmd;
 pub mod auth;
 pub mod start;
 pub mod stop;

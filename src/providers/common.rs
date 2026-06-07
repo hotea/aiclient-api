@@ -220,6 +220,12 @@ impl Provider for CommonProvider {
         true
     }
 
+    fn default_model(&self) -> Option<String> {
+        self.configured_models
+            .first()
+            .map(|model| self.model_without_prefix(model))
+    }
+
     async fn list_models(&self) -> Result<Vec<Model>> {
         if !self.configured_models.is_empty() {
             return Ok(self

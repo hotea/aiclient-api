@@ -25,6 +25,8 @@ pub struct Config {
     pub default_provider: String,
     #[serde(default)]
     pub api_key: String,
+    #[serde(default)]
+    pub auth_enabled: bool,
     #[serde(default = "default_vscode_version")]
     pub vscode_version: String,
     #[serde(default)]
@@ -50,6 +52,8 @@ pub struct RoutingConfig {
     pub mode: ProviderRoutingMode,
     #[serde(default)]
     pub provider: String,
+    #[serde(default = "default_routing_models")]
+    pub models: Vec<String>,
     #[serde(default)]
     pub weights: HashMap<String, u32>,
 }
@@ -186,6 +190,9 @@ fn default_common_vendor() -> String {
 fn default_provider_routing_mode() -> ProviderRoutingMode {
     ProviderRoutingMode::Auto
 }
+fn default_routing_models() -> Vec<String> {
+    vec!["auto".to_string()]
+}
 
 impl Default for Config {
     fn default() -> Self {
@@ -193,6 +200,7 @@ impl Default for Config {
             default_format: default_format(),
             default_provider: default_provider(),
             api_key: String::new(),
+            auth_enabled: false,
             vscode_version: default_vscode_version(),
             server: ServerConfig::default(),
             providers: default_provider_configs(),
@@ -309,6 +317,7 @@ impl Default for RoutingConfig {
         RoutingConfig {
             mode: default_provider_routing_mode(),
             provider: String::new(),
+            models: default_routing_models(),
             weights: HashMap::new(),
         }
     }

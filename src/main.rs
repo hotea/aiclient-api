@@ -69,6 +69,16 @@ fn main() {
                 Err(e) => Err(e.into()),
             }
         }
+        cli::Command::ApiKey { action } => {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build();
+
+            match runtime {
+                Ok(rt) => rt.block_on(cli::api_key_cmd::run(action)),
+                Err(e) => Err(e.into()),
+            }
+        }
         cli::Command::Status => {
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()

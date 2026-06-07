@@ -142,10 +142,11 @@ async fn run_interactive_config() -> Result<()> {
     
     let use_api_key = Confirm::with_theme(&theme)
         .with_prompt("Require API key for requests?")
-        .default(!config.api_key.is_empty())
+        .default(config.auth_enabled)
         .interact()?;
     
     if use_api_key {
+        config.auth_enabled = true;
         config.api_key = Input::with_theme(&theme)
             .with_prompt("API key")
             .default(if config.api_key.is_empty() {
@@ -155,7 +156,7 @@ async fn run_interactive_config() -> Result<()> {
             })
             .interact_text()?;
     } else {
-        config.api_key = String::new();
+        config.auth_enabled = false;
     }
 
     // Step 6: Save configuration
@@ -164,7 +165,7 @@ async fn run_interactive_config() -> Result<()> {
     println!("  • Default format: {:?}", config.default_format);
     println!("  • Default provider: {}", config.default_provider);
     println!("  • Server: {}:{}", config.server.host, config.server.port);
-    println!("  • API key: {}", if config.api_key.is_empty() { "disabled" } else { "enabled" });
+    println!("  • API key auth: {}", if config.auth_enabled { "enabled" } else { "disabled" });
     
     let save = Confirm::with_theme(&theme)
         .with_prompt("Save configuration?")

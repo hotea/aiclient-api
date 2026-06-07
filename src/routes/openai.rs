@@ -4,6 +4,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::Value;
 
+use crate::config::types::ProviderRoutingMode;
 use crate::convert::openai_types::OpenAIChatRequest;
 use crate::convert::{from_openai, to_anthropic, to_openai};
 use crate::providers::router::resolve_provider;
@@ -34,8 +35,8 @@ async fn chat_completions_inner(
     let model = body
         .get("model")
         .and_then(|m| m.as_str())
-        .unwrap_or("gpt-4")
-        .to_string();
+        .map(str::to_string)
+        .unwrap_or_else(|| default_request_model(&state, "gpt-4"));
 
     let stream = body
         .get("stream")
@@ -79,23 +80,28 @@ async fn chat_completions_inner(
             ProviderResponse::Complete(val) => {
                 // Record usage statistics from passthrough response
                 if let Some(usage) = val.get("usage") {
-                    let input_tokens = usage.get("input_tokens")
+                    let input_tokens = usage
+                        .get("input_tokens")
                         .or_else(|| usage.get("prompt_tokens"))
                         .and_then(|v| v.as_u64())
                         .unwrap_or(0);
-                    let output_tokens = usage.get("output_tokens")
+                    let output_tokens = usage
+                        .get("output_tokens")
                         .or_else(|| usage.get("completion_tokens"))
                         .and_then(|v| v.as_u64())
                         .unwrap_or(0);
-                    
-                    state.usage_tracker.record(
-                        provider.name(),
-                        &resolved_model,
-                        input_tokens,
-                        output_tokens,
-                    ).await;
+
+                    state
+                        .usage_tracker
+                        .record(
+                            provider.name(),
+                            &resolved_model,
+                            input_tokens,
+                            output_tokens,
+                        )
+                        .await;
                 }
-                
+
                 return Ok(Json(val).into_response());
             }
         }
@@ -120,26 +126,31 @@ async fn chat_completions_inner(
                 OutputFormat::OpenAI => to_openai(&val, &resolved_model),
                 OutputFormat::Anthropic => to_anthropic(&val, &resolved_model),
             };
-            
+
             // Record usage statistics
             if let Some(usage) = val.get("usage") {
-                let input_tokens = usage.get("input_tokens")
+                let input_tokens = usage
+                    .get("input_tokens")
                     .or_else(|| usage.get("prompt_tokens"))
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0);
-                let output_tokens = usage.get("output_tokens")
+                let output_tokens = usage
+                    .get("output_tokens")
                     .or_else(|| usage.get("completion_tokens"))
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0);
-                
-                state.usage_tracker.record(
-                    provider.name(),
-                    &resolved_model,
-                    input_tokens,
-                    output_tokens,
-                ).await;
+
+                state
+                    .usage_tracker
+                    .record(
+                        provider.name(),
+                        &resolved_model,
+                        input_tokens,
+                        output_tokens,
+                    )
+                    .await;
             }
-            
+
             Ok(Json(final_response).into_response())
         }
     }
@@ -156,6 +167,28 @@ pub async fn list_models(State(state): State<AppState>) -> Response {
 }
 
 async fn list_models_inner(state: AppState) -> Result<Value, AppError> {
+    let config = state.config.load();
+    if config.routing.mode == ProviderRoutingMode::Auto {
+        let data: Vec<Value> = config
+            .routing
+            .models
+            .iter()
+            .map(|model| {
+                serde_json::json!({
+                    "id": model,
+                    "object": "model",
+                    "created": 0,
+                    "owned_by": "aiclient-api",
+                })
+            })
+            .collect();
+        return Ok(serde_json::json!({
+            "object": "list",
+            "data": data,
+        }));
+    }
+    drop(config);
+
     let providers = state.providers.read().await;
     let mut models = Vec::new();
     for provider in providers.values() {
@@ -174,4 +207,18 @@ async fn list_models_inner(state: AppState) -> Result<Value, AppError> {
         "object": "list",
         "data": models,
     }))
+}
+
+fn default_request_model(state: &AppState, fallback: &str) -> String {
+    let config = state.config.load();
+    if config.routing.mode == ProviderRoutingMode::Auto {
+        config
+            .routing
+            .models
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "auto".to_string())
+    } else {
+        fallback.to_string()
+    }
 }

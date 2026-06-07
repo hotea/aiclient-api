@@ -9,6 +9,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use tracing::{debug, info};
 
+use crate::config::types::ProviderRoutingMode;
 use crate::convert::anthropic_types::AnthropicMessagesRequest;
 use crate::convert::stream::chunk_to_anthropic;
 use crate::convert::{from_anthropic, to_anthropic, to_openai};
@@ -66,8 +67,8 @@ async fn messages_inner(
     let model = body
         .get("model")
         .and_then(|m| m.as_str())
-        .unwrap_or("claude-3-5-sonnet")
-        .to_string();
+        .map(str::to_string)
+        .unwrap_or_else(|| default_request_model(&state, "claude-3-5-sonnet"));
 
     let stream = body
         .get("stream")
@@ -233,6 +234,20 @@ fn find_sse_event_end(buffer: &[u8]) -> Option<usize> {
     }
 
     None
+}
+
+fn default_request_model(state: &AppState, fallback: &str) -> String {
+    let config = state.config.load();
+    if config.routing.mode == ProviderRoutingMode::Auto {
+        config
+            .routing
+            .models
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "auto".to_string())
+    } else {
+        fallback.to_string()
+    }
 }
 
 fn anthropic_passthrough_stream(

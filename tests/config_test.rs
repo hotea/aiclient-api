@@ -6,11 +6,13 @@ fn test_deserialize_full_config() {
 default_format = "openai"
 default_provider = "copilot"
 api_key = ""
+auth_enabled = false
 vscode_version = "1.110.1"
 
 [routing]
 mode = "auto"
 provider = "copilot"
+models = ["auto", "chat"]
 
 [routing.weights]
 opencode = 2
@@ -53,8 +55,10 @@ file = ""
 "#;
     let config: Config = toml::from_str(toml_str).unwrap();
     assert_eq!(config.default_provider, "copilot");
+    assert!(!config.auth_enabled);
     assert_eq!(config.routing.mode, ProviderRoutingMode::Auto);
     assert_eq!(config.routing.provider, "copilot");
+    assert_eq!(config.routing.models, vec!["auto", "chat"]);
     assert_eq!(config.routing.weights["opencode"], 2);
     assert_eq!(config.routing.weights["aihubmix"], 1);
     assert_eq!(config.server.port, 9090);
@@ -69,8 +73,10 @@ fn test_default_config_is_valid() {
     let config = Config::default();
     assert_eq!(config.server.port, 9090);
     assert_eq!(config.default_format, Format::OpenAI);
+    assert!(!config.auth_enabled);
     assert_eq!(config.routing.mode, ProviderRoutingMode::Auto);
     assert!(config.routing.provider.is_empty());
+    assert_eq!(config.routing.models, vec!["auto"]);
     assert!(config.routing.weights.is_empty());
     assert!(config.providers.contains_key("copilot"));
     assert!(config.providers.contains_key("kiro"));
