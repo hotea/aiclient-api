@@ -1,11 +1,30 @@
 # Default output format when both endpoints are available
 default_format = "openai"           # "openai" | "anthropic"
 
-# Default provider when model has no prefix
+# Legacy fallback provider for fixed routing when routing.provider is empty
 default_provider = "copilot"
 
 # API key to protect the gateway (empty string = no auth required)
 api_key = ""
+
+# Common provider API keys can be stored in:
+#   1. real environment variables, or
+#   2. ./.env in the current project, or
+#   3. ~/.aiclient-api/.env
+# Keep using api_key_env below so secrets do not need to be written into config.toml.
+# Multiple keys can be comma-separated in one env var, or configured with api_key_envs.
+
+[routing]
+# Provider selection when the request has no model prefix and no X-Provider header.
+# auto  = weighted round-robin across all running healthy providers
+# fixed = always use routing.provider (or default_provider if routing.provider is empty)
+mode = "auto"
+provider = ""
+
+[routing.weights]
+# Providers not listed here default to weight 1. Set weight 0 to exclude one from auto routing.
+# nvidia = 2
+# aihubmix = 1
 
 [server]
 host = "127.0.0.1"
@@ -26,6 +45,43 @@ type = "kiro"
 enabled = true
 region = "us-east-1"
 # idc_region = "us-east-1"
+
+# OpenAI-compatible providers. The table name is the provider prefix:
+# use model "opencode/nemotron-3-ultra-free" or header "X-Provider: opencode".
+[providers.opencode]
+type = "common"
+enabled = false
+base_url = "https://opencode.ai/zen/v1"
+api_key_env = "OPENCODE_API_KEY"
+models = ["nemotron-3-ultra-free"]
+vendor = "opencode"
+
+[providers.nvidia]
+type = "common"
+enabled = false
+base_url = "https://integrate.api.nvidia.com/v1"
+api_key_env = "NVIDIA_API_KEY"
+models = ["nemotron-3-ultra-free"]
+vendor = "nvidia"
+
+[providers.aihubmix]
+type = "common"
+enabled = false
+base_url = "https://aihubmix.com/v1/chat/completions"
+api_key_env = "AIHUBMIX_API_KEY"
+# Alternative rotation formats:
+# api_key_envs = ["AIHUBMIX_API_KEY_1", "AIHUBMIX_API_KEY_2"]
+# api_keys = ["sk-1", "sk-2"]          # not recommended for real secrets
+models = ["gpt-4.1-free"]
+vendor = "aihubmix"
+
+[providers.openrouter]
+type = "common"
+enabled = false
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+models = ["nvidia/nemotron-3-ultra-550b-a55b:free"]
+vendor = "openrouter"
 
 [logging]
 level = "info"                      # trace | debug | info | warn | error

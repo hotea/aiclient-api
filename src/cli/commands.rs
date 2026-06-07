@@ -101,6 +101,8 @@ pub enum ConfigAction {
 
 #[derive(Subcommand)]
 pub enum ProviderAction {
+    /// List configured providers and runtime status
+    List,
     /// Enable a provider
     Enable { name: String },
     /// Disable a provider

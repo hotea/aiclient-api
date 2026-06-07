@@ -1,6 +1,7 @@
 use arc_swap::ArcSwap;
 use axum::extract::FromRef;
 use std::collections::HashMap;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::Instant;
@@ -17,6 +18,7 @@ pub struct AppState {
     pub start_time: Instant,
     pub rate_limiter: RateLimitMap,
     pub usage_tracker: UsageTracker,
+    pub routing_counter: Arc<AtomicUsize>,
 }
 
 impl AppState {
@@ -27,6 +29,7 @@ impl AppState {
             start_time: Instant::now(),
             rate_limiter: super::middleware::new_rate_limit_map(),
             usage_tracker: UsageTracker::new(),
+            routing_counter: Arc::new(AtomicUsize::new(0)),
         }
     }
 }

@@ -36,19 +36,27 @@ fn main() {
         },
         cli::Command::Stop => cli::stop::run(),
         cli::Command::Restart => {
-            let runtime = tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build();
+            let _ = aiclient_api::daemon::stop_daemon();
+            std::thread::sleep(std::time::Duration::from_millis(500));
 
-            match runtime {
-                Ok(rt) => rt.block_on(cli::restart::run(
-                    "127.0.0.1".into(),
-                    9090,
-                    false,
-                    None,
-                    None,
-                )),
-                Err(e) => Err(e.into()),
+            let daemonize_result = cli::start::daemonize_if_needed(false, None);
+            if let Err(e) = daemonize_result {
+                Err(e)
+            } else {
+                let runtime = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build();
+
+                match runtime {
+                    Ok(rt) => rt.block_on(cli::restart::run(
+                        "127.0.0.1".into(),
+                        9090,
+                        false,
+                        None,
+                        None,
+                    )),
+                    Err(e) => Err(e.into()),
+                }
             }
         }
         cli::Command::Auth { action } => {

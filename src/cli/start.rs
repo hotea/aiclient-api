@@ -2,9 +2,6 @@ use anyhow::Result;
 use std::path::PathBuf;
 use tokio::signal::unix::SignalKind;
 use tracing_subscriber::EnvFilter;
-
-use aiclient_api::auth::TokenStore;
-
 pub fn daemonize_if_needed(foreground: bool, log_file: Option<&str>) -> Result<()> {
     if foreground {
         return Ok(());
@@ -62,70 +59,16 @@ pub async fn run(
 
     let state = aiclient_api::server::state::AppState::new(config.clone());
 
-    // Initialize providers from config
+    let provider_load = aiclient_api::providers::load_configured_providers(&config).await;
+    for provider in &provider_load.loaded {
+        tracing::info!("Initialized provider '{}'", provider);
+    }
+    for skipped in &provider_load.skipped {
+        tracing::warn!("Skipped provider: {}", skipped);
+    }
     {
-        let store = aiclient_api::auth::token_store::XdgTokenStore::default();
-        let vscode_version = config.vscode_version.clone();
         let mut providers = state.providers.write().await;
-
-        for provider_config in config.providers.values() {
-            match provider_config {
-                aiclient_api::config::types::ProviderConfig::Copilot {
-                    enabled: true,
-                    account_type,
-                    ..
-                } => match store.load("copilot").await {
-                    Ok(aiclient_api::auth::TokenData::Copilot { github_token, .. }) => {
-                        let provider = aiclient_api::providers::copilot::CopilotProvider::new(
-                            github_token,
-                            account_type.clone(),
-                            &vscode_version,
-                        );
-                        provider.start();
-                        providers.insert("copilot".to_string(), provider);
-                        tracing::info!("Initialized Copilot provider");
-                    }
-                    Ok(_) => {
-                        tracing::warn!("Unexpected token type for copilot provider, skipping");
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to load Copilot token, skipping provider: {:#}", e);
-                    }
-                },
-                aiclient_api::config::types::ProviderConfig::Copilot { enabled: false, .. } => {
-                    // Provider disabled, skip
-                }
-                aiclient_api::config::types::ProviderConfig::Kiro {
-                    enabled: true,
-                    region,
-                    ..
-                } => match store.load("kiro").await {
-                    Ok(token_data) => {
-                        match aiclient_api::providers::kiro::KiroProvider::new(&token_data, region)
-                        {
-                            Ok(provider) => {
-                                provider.start();
-                                providers.insert(
-                                    "kiro".to_string(),
-                                    provider
-                                        as std::sync::Arc<dyn aiclient_api::providers::Provider>,
-                                );
-                                tracing::info!("Kiro provider initialized");
-                            }
-                            Err(e) => {
-                                tracing::warn!("Failed to create Kiro provider: {:#}", e);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("Kiro auth not configured: {:#}", e);
-                    }
-                },
-                aiclient_api::config::types::ProviderConfig::Kiro { enabled: false, .. } => {
-                    // Provider disabled, skip
-                }
-            }
-        }
+        *providers = provider_load.providers;
     }
 
     let app = aiclient_api::server::build_router(state.clone());
@@ -139,7 +82,7 @@ pub async fn run(
     });
 
     // Spawn SIGHUP handler for config hot-reload
-    let config_arc = state.config.clone();
+    let reload_state = state.clone();
     tokio::spawn(async move {
         let mut sighup = tokio::signal::unix::signal(SignalKind::hangup())
             .expect("failed to install SIGHUP handler");
@@ -148,8 +91,18 @@ pub async fn run(
             tracing::info!("Received SIGHUP, reloading config...");
             match aiclient_api::config::load_default_config() {
                 Ok(new_config) => {
-                    config_arc.store(std::sync::Arc::new(new_config));
-                    tracing::info!("Config reloaded successfully");
+                    let load =
+                        aiclient_api::providers::load_configured_providers(&new_config).await;
+                    {
+                        let mut providers = reload_state.providers.write().await;
+                        *providers = load.providers;
+                    }
+                    reload_state.config.store(std::sync::Arc::new(new_config));
+                    tracing::info!(
+                        loaded = ?load.loaded,
+                        skipped = ?load.skipped,
+                        "Config and providers reloaded successfully"
+                    );
                 }
                 Err(e) => tracing::error!("Config reload failed: {:#}", e),
             }

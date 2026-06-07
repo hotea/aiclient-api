@@ -5,6 +5,13 @@ use super::status::send_control_request;
 
 pub async fn run(action: ProviderAction) -> Result<()> {
     match action {
+        ProviderAction::List => {
+            let resp = send_control_request(serde_json::json!({
+                "method": "provider.list"
+            }))
+            .await?;
+            println!("{}", serde_json::to_string_pretty(&resp)?);
+        }
         ProviderAction::Enable { name } => {
             let resp = send_control_request(serde_json::json!({
                 "method": "provider.enable",

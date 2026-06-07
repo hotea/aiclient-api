@@ -151,8 +151,17 @@ Config file: `~/.config/aiclient-api/config.toml`
 
 ```toml
 default_format = "openai"       # "openai" or "anthropic"
-default_provider = "copilot"    # default provider when no prefix
+default_provider = "copilot"    # fixed-route fallback when routing.provider is empty
 api_key = ""                    # empty = no auth required
+
+[routing]
+mode = "auto"                   # "auto" or "fixed"
+provider = ""                   # fixed provider; empty falls back to default_provider
+
+[routing.weights]
+# Used only in auto mode. Missing providers default to weight 1; 0 excludes a provider.
+nvidia = 2
+aihubmix = 1
 
 [server]
 host = "127.0.0.1"
@@ -168,6 +177,37 @@ account_type = "individual"     # "individual", "business", "enterprise"
 type = "kiro"
 enabled = true
 region = "us-east-1"
+
+[providers.opencode]
+type = "common"
+enabled = true
+base_url = "https://opencode.ai/zen/v1"
+api_key_env = "OPENCODE_API_KEY"
+models = ["nemotron-3-ultra-free"]
+
+[providers.nvidia]
+type = "common"
+enabled = true
+base_url = "https://integrate.api.nvidia.com/v1"
+api_key_env = "NVIDIA_API_KEY"
+models = ["nemotron-3-ultra-free"]
+
+[providers.aihubmix]
+type = "common"
+enabled = true
+base_url = "https://aihubmix.com/v1/chat/completions"
+api_key_env = "AIHUBMIX_API_KEY"
+# Optional: rotate multiple keys, either from env or TOML
+# api_key_envs = ["AIHUBMIX_API_KEY_1", "AIHUBMIX_API_KEY_2"]
+# api_keys = ["sk-...", "sk-..."]
+models = ["gpt-4.1-free"]
+
+[providers.openrouter]
+type = "common"
+enabled = true
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "OPENROUTER_API_KEY"
+models = ["nvidia/nemotron-3-ultra-550b-a55b:free"]
 
 [logging]
 level = "info"
@@ -190,10 +230,47 @@ level = "info"
 | `aiclient-api config init` | Interactive configuration wizard |
 | `aiclient-api config show` | Show current config |
 | `aiclient-api config reload` | Reload config from disk |
+| `aiclient-api provider list` | List configured providers and runtime status |
 | `aiclient-api provider enable <name>` | Enable a provider |
 | `aiclient-api provider disable <name>` | Disable a provider |
 | `aiclient-api logs` | Tail daemon logs |
 | `aiclient-api logs --level error` | Filter by log level |
+
+`provider enable` / `provider disable` hot-swap the running daemon without a
+restart. Edit `config.toml` and run `config reload` when you want the change to
+persist across restarts.
+
+Provider names are the table names under `[providers.*]` (for example
+`aihubmix`, `openrouter`, `opencode`, or `nvidia`). `common` is a provider type; running
+`aiclient-api provider enable common` enables all configured `type = "common"`
+providers, but it will not create providers that are missing from `config.toml`.
+Built-in default provider templates include `copilot`, `kiro`, `opencode`,
+`nvidia`, `aihubmix`, and `openrouter`; the common providers are disabled until
+you set their API key environment variables and enable them.
+
+Common provider API keys can be supplied by real environment variables, a
+`.env` file, or `api_keys` in TOML. Use env-based keys for secrets. The daemon
+looks in these `.env` files in order:
+
+1. Current working directory: `./.env`
+2. User-level fallback: `~/.aiclient-api/.env`
+3. Legacy config-dir fallback, for existing installs: `~/Library/Application Support/aiclient-api/.env` on macOS or `~/.config/aiclient-api/.env` on Linux
+
+Example `.env`:
+
+```bash
+AIHUBMIX_API_KEY=sk-...
+# Multiple keys can be comma-separated; requests rotate across them.
+# AIHUBMIX_API_KEY=sk-1,sk-2,sk-3
+OPENROUTER_API_KEY=sk-or-...
+OPENCODE_API_KEY=...
+NVIDIA_API_KEY=...
+```
+
+You can also configure multiple environment variables with
+`api_key_envs = ["AIHUBMIX_API_KEY_1", "AIHUBMIX_API_KEY_2"]`. If a key already
+includes an auth scheme such as `Bearer sk-...`, it is used as-is; otherwise the
+provider's `auth_scheme` is prepended.
 
 ## Model Routing
 
@@ -201,7 +278,113 @@ Models are routed by three mechanisms, in priority order:
 
 1. **Model prefix** — `copilot/gpt-4o` routes to the `copilot` provider with model `gpt-4o`
 2. **X-Provider header** — `X-Provider: kiro` routes to the `kiro` provider
-3. **Config default** — Falls back to `default_provider` in config
+3. **Routing config** — `routing.mode = "auto"` weighted round-robins across running healthy providers; `routing.mode = "fixed"` always uses `routing.provider`
+
+`type = "common"` providers are OpenAI-compatible upstreams. You can configure
+multiple instances under different provider names, then route with model prefixes
+such as `opencode/nemotron-3-ultra-free`, `nvidia/nemotron-3-ultra-free`,
+`aihubmix/gpt-4.1-free`, or
+`openrouter/nvidia/nemotron-3-ultra-550b-a55b:free`.
+
+### Switching models and providers
+
+Use a provider prefix in `model` to switch upstreams per request:
+
+```bash
+# OpenCode
+curl http://127.0.0.1:9090/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "opencode/nemotron-3-ultra-free",
+    "messages": [{"role": "user", "content": "hello"}]
+  }'
+
+# NVIDIA
+curl http://127.0.0.1:9090/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "nvidia/nemotron-3-ultra-free",
+    "messages": [{"role": "user", "content": "hello"}]
+  }'
+
+# AIHubMix
+curl http://127.0.0.1:9090/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "aihubmix/gpt-4.1-free",
+    "messages": [{"role": "user", "content": "hello"}]
+  }'
+
+# OpenRouter
+curl http://127.0.0.1:9090/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+    "messages": [{"role": "user", "content": "hello"}]
+  }'
+```
+
+Or keep the model unprefixed and select the provider with `X-Provider`:
+
+```bash
+curl http://127.0.0.1:9090/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "X-Provider: aihubmix" \
+  -d '{
+    "model": "gpt-4.1-free",
+    "messages": [{"role": "user", "content": "hello"}]
+  }'
+```
+
+After changing routing or provider config, reload without restarting:
+
+```bash
+aiclient-api config reload
+```
+
+Provider selection mode is configured under `[routing]`. In fixed mode, only the
+configured provider is used for unprefixed requests:
+
+```toml
+[routing]
+mode = "fixed"
+provider = "aihubmix"
+```
+
+In auto mode (the default), unprefixed requests rotate across all running
+healthy providers. Weights control the weighted round-robin sequence:
+
+```toml
+[routing]
+mode = "auto"
+
+[routing.weights]
+aihubmix = 2
+nvidia = 1
+copilot = 0  # exclude from auto routing
+```
+
+In auto mode, explicit model prefixes and `X-Provider` override automatic
+selection for that request. In fixed mode, they must match the configured
+provider; they cannot switch to a different provider.
+
+Enable or disable providers at runtime:
+
+```bash
+# See built-in and configured provider templates
+aiclient-api provider list
+
+# Enable one configured provider instance
+# Put AIHUBMIX_API_KEY in your .env file first
+aiclient-api provider enable aihubmix
+
+# Enable all configured OpenAI-compatible common providers
+aiclient-api provider enable common
+
+# Enable OpenRouter specifically
+# Put OPENROUTER_API_KEY in your .env file first
+aiclient-api provider enable openrouter
+```
 
 ## API Endpoints
 
